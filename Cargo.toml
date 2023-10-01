@@ -1,0 +1,22 @@
+[package]
+name = "prats"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+num-traits = { version= "0.2.9",  features = ["libm"] }
+num-integer = { version = "0.1.39" }
+num-bigint = { version = "0.8.2", features = ["i128", "prime", "zeroize"],  package = "num-bigint-dig" }
+num-prime = "*"
+rand_core = { version = "0.6.4", default-features = false }
+num-modular = "*"
+errors = "*"
+rand = "0.8.5"
+crypto-bigint = "0.5.2"
+crypto-primes = "0.3.0"
+
+
+[dev-dependencies]
+rand_chacha = "0.3"

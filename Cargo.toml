@@ -9,13 +9,16 @@ edition = "2021"
 num-traits = { version= "0.2.9",  features = ["libm"] }
 num-integer = { version = "0.1.39" }
 num-bigint = { version = "0.8.2", features = ["i128", "prime", "zeroize"],  package = "num-bigint-dig" }
+# num-bigint = "0.4.4"
 num-prime = "*"
 rand_core = { version = "0.6.4", default-features = false }
 num-modular = "*"
 errors = "*"
 rand = "0.8.5"
-crypto-bigint = "0.5.2"
+crypto-bigint = { version = "0.5.2", features = ["rand", "rand_core", "zeroize"] }
 crypto-primes = "0.3.0"
+rsa = "*"
+rand_chacha = "0.3"
 
 
 [dev-dependencies]

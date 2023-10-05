@@ -19,6 +19,8 @@ crypto-bigint = { version = "0.5.2", features = ["rand", "rand_core", "zeroize"]
 crypto-primes = "0.3.0"
 rsa = "*"
 rand_chacha = "0.3"
+thiserror="*"
+log ="*"
 
 
 [dev-dependencies]

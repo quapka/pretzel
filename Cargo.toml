@@ -21,6 +21,8 @@ rsa = "*"
 rand_chacha = "0.3"
 thiserror="*"
 log ="*"
+factorial = "*"
+sha2 = "*"
 
 
 [dev-dependencies]

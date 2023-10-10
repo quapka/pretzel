@@ -23,6 +23,9 @@ thiserror="*"
 log ="*"
 factorial = "*"
 sha2 = "*"
+serde = {version = "1.0.188", features = ["derive"]}
+serde_json = "*"
+modinverse = "*"
 
 
 [dev-dependencies]

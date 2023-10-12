@@ -39,7 +39,7 @@ use std::str::FromStr;
 
 // FIXME Check that the geneated values/shares etc. are not ones or zeroes for example?
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPrivateKey {
     p: BigInt,
     q: BigInt,
@@ -48,10 +48,40 @@ pub struct RSAThresholdPrivateKey {
     e: BigInt,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPublicKey {
     n: BigInt,
     e: BigInt,
+}
+
+pub struct Group {
+    size: usize,
+}
+pub struct GroupParams {}
+
+// FIXME introduce lifetimes?
+// FIXME merge RsaSecretShare and RsaVerificationKey
+#[derive(Debug, Clone)]
+struct RsaSecretShare {
+    id: usize,
+    share: BigInt,
+    // m: BigInt,
+}
+
+// FIXME introduce lifetimes?
+#[derive(Debug, Clone)]
+struct RsaVerificationKey {
+    id: usize,
+    key: BigInt,
+}
+
+#[derive(Debug, Clone)]
+struct MsgSignatureShare {
+    id: usize,
+    xi: BigInt,
+    z: BigInt,
+    c: BigInt,
+    // key: RSAThresholdPublicKey,
 }
 
 #[derive(Error, Debug)]
@@ -159,7 +189,7 @@ fn evaluate_polynomial_mod(
     Ok(rem)
 }
 
-fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> Vec<BigInt> {
+fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> Vec<RsaSecretShare> {
     // generate random coefficients
     let mut rng = ChaCha20Rng::from_entropy();
     let mut a_coeffs: Vec<BigInt> = (0..=(k - 1))
@@ -168,8 +198,11 @@ fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> V
     // fix a_0 to the private exponent
     a_coeffs[0] = key.d.clone();
     // calculate the individual shares
-    let shares: Vec<BigInt> = (1..=l)
-        .map(|i| evaluate_polynomial_mod(i.into(), &a_coeffs, &key.m).unwrap())
+    let shares: Vec<RsaSecretShare> = (1..=l)
+        .map(|i| RsaSecretShare {
+            id: i,
+            share: evaluate_polynomial_mod(i.into(), &a_coeffs, &key.m).unwrap(),
+        })
         .collect();
     eprintln!("pz_a = [{}, {}]", a_coeffs[0], a_coeffs[1]);
     shares
@@ -177,14 +210,20 @@ fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> V
 
 fn generate_verification(
     key: &RSAThresholdPublicKey,
-    shares: Vec<BigInt>,
-) -> (BigInt, Vec<BigInt>) {
+    shares: Vec<RsaSecretShare>,
+) -> (BigInt, Vec<RsaVerificationKey>) {
     let mut rng = ChaCha20Rng::from_entropy();
     let two = BigInt::from(2u8);
     // FIXME: v is supposed to be from the subgroup of squares, is it?
     let v = rng.gen_bigint_range(&two, &key.n);
     assert_eq!(v.gcd(&key.n).cmp(&BigInt::one()), Ordering::Equal);
-    let verification_keys = shares.iter().map(|s| v.modpow(s, &key.n)).collect();
+    let verification_keys = shares
+        .iter()
+        .map(|s| RsaVerificationKey {
+            id: s.id,
+            key: v.modpow(&s.share, &key.n),
+        })
+        .collect();
     (v, verification_keys)
 }
 
@@ -198,11 +237,11 @@ fn generate_verification(
 fn sign_with_share(
     msg: String,
     delta: usize,
-    share: &BigInt,
+    share: &RsaSecretShare,
     key: &RSAThresholdPublicKey,
     v: BigInt,
-    vi: &BigInt,
-) -> (BigInt, BigInt, BigInt, BigInt) {
+    vi: &RsaVerificationKey,
+) -> MsgSignatureShare {
     let msg_digest = Sha256::digest(msg);
     // FIXME is this correct conversion?
     let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
@@ -210,7 +249,7 @@ fn sign_with_share(
     // let xi = BigInt::from_bytes_be(msg_digest);
     let mut exponent = BigInt::from(2u8);
     exponent.mul_assign(BigInt::from(delta));
-    exponent.mul_assign(share);
+    exponent.mul_assign(share.share.clone());
     // calculate the signature share
     let xi = x.modpow(&exponent, &key.n);
     // x_tilde
@@ -236,15 +275,21 @@ fn sign_with_share(
     // FIXME omitting the sign could be of an issue
     let mut commit = v.to_bytes_be().1;
     commit.extend(x_tilde.to_bytes_be().1);
-    commit.extend(vi.to_bytes_be().1);
+    // FIXME don't just use the key but provide some way of hashing?
+    commit.extend(vi.key.to_bytes_be().1);
     commit.extend(xi_squared.to_bytes_be().1);
     commit.extend(v_prime.to_bytes_be().1);
     commit.extend(x_prime.to_bytes_be().1);
 
     let c = BigInt::from_bytes_be(Sign::Plus, &Sha256::digest(commit));
-    let z = (share.mul(c.clone())).add(r.clone());
+    let z = (share.share.clone().mul(c.clone())).add(r.clone());
 
-    (xi, z, c, r)
+    MsgSignatureShare {
+        id: share.id,
+        xi: xi,
+        z: z,
+        c: c,
+    }
 }
 
 fn lambda(delta: usize, i: usize, j: usize, l: usize, subset: Vec<usize>) -> BigInt {
@@ -318,7 +363,7 @@ fn verify_proof(
     v: BigInt,
     delta: usize,
     xi: BigInt,
-    vi: &BigInt,
+    vi: &RsaVerificationKey,
     c: BigInt,
     z: BigInt,
     key: &RSAThresholdPublicKey,
@@ -334,7 +379,7 @@ fn verify_proof(
     // FIXME refactor param5 and param6 calculations
     // FIXME use checked_mul instead
     let param5 = v.modpow(&z, &key.n);
-    let tmp1 = vi.modpow(&c, &key.n).mod_inverse(&key.n).expect("");
+    let tmp1 = vi.key.modpow(&c, &key.n).mod_inverse(&key.n).expect("");
     let param5 = (param5 * tmp1).mod_floor(&key.n);
 
     let param6 = x_tilde.modpow(&z, &key.n);
@@ -346,7 +391,7 @@ fn verify_proof(
 
     let mut commit = v.to_bytes_be().1;
     commit.extend(x_tilde.to_bytes_be().1);
-    commit.extend(vi.to_bytes_be().1);
+    commit.extend(vi.key.to_bytes_be().1);
     commit.extend(xi_squared.to_bytes_be().1);
     commit.extend(param5.to_bytes_be().1);
     commit.extend(param6.to_bytes_be().1);
@@ -376,20 +421,20 @@ fn load_key() -> std::io::Result<RSAThresholdPrivateKey> {
 fn combine_shares(
     msg: String,
     delta: usize,
-    shares: Vec<BigInt>,
+    sign_shares: Vec<MsgSignatureShare>,
     key: &RSAThresholdPublicKey,
     l: usize,
 ) -> BigInt {
     let msg_digest = Sha256::digest(msg);
     // FIXME is this correct conversion?
     let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
-    eprintln!("pz_x = {}", x);
+    // eprintln!("pz_x = {}", x);
 
     let mut w = BigInt::one();
     // FIXME the set is supposed to be dynamic
-    let subset = vec![1, 2];
-    for (ik, share) in shares.iter().enumerate() {
-        let lamb = lambda(delta, 0, ik + 1, l, subset.clone());
+    let subset = sign_shares.iter().map(|s| s.id).collect::<Vec<usize>>();
+    for (_, share) in sign_shares.iter().enumerate() {
+        let lamb = lambda(delta, 0, share.id, l, subset.clone());
 
         // FIXME exponent might be negative - what then?
         let exponent = BigInt::from(2u8).mul(lamb);
@@ -397,11 +442,12 @@ fn combine_shares(
 
         w.mul_assign(match exponent.cmp(&BigInt::zero()) {
             Ordering::Less => share
+                .xi
                 .modpow(&exponent.neg(), &key.n)
                 .mod_inverse(&key.n)
                 .expect(""),
             Ordering::Equal => BigInt::one(),
-            Ordering::Greater => share.modpow(&exponent, &key.n),
+            Ordering::Greater => share.xi.modpow(&exponent, &key.n),
         });
         // w.mul_assign(share.modpow(&exponent, &key.n));
     }
@@ -700,7 +746,7 @@ mod tests {
     #[test]
     fn dealer_integration() {
         // initialize the group
-        let l = 2;
+        let l = 3;
         let k = 2;
         let t = 1;
         let bit_length = 512;
@@ -716,7 +762,7 @@ mod tests {
         // distribute the shares
         // hash_all_the_things(&v, delta);
 
-        let (x1, z, c, r) = sign_with_share(
+        let mss1 = sign_with_share(
             msg.clone(),
             delta,
             &shares[0],
@@ -732,15 +778,15 @@ mod tests {
             msg.clone(),
             v.clone(),
             delta,
-            x1.clone(),
+            mss1.xi.clone(),
             &verification_keys[0],
-            c,
-            z,
+            mss1.c.clone(),
+            mss1.z.clone(),
             &pubkey,
         );
         assert!(verified);
 
-        let (x2, z, c, r) = sign_with_share(
+        let mss2 = sign_with_share(
             msg.clone(),
             delta,
             &shares[1],
@@ -756,16 +802,15 @@ mod tests {
             msg.clone(),
             v.clone(),
             delta,
-            x2.clone(),
+            mss2.xi.clone(),
             &verification_keys[1],
-            c,
-            z,
+            mss2.c.clone(),
+            mss2.z.clone(),
             &pubkey,
         );
         assert!(verified);
 
-        let signature =
-            combine_shares(msg.clone(), delta, vec![x1.clone(), x2.clone()], &pubkey, l);
+        let signature = combine_shares(msg.clone(), delta, vec![mss1, mss2], &pubkey, l);
         let reg_sig = regular_signature(msg.clone(), &sk);
         // assert_eq!(signature.cmp(&reg_sig), Ordering::Equal);
         eprintln!("signature: {:?}", signature);
@@ -779,7 +824,6 @@ mod tests {
         eprintln!("q: {}", sk.q.to_string());
         eprintln!("m: {}", sk.m.to_string());
         eprintln!("v: {}", v.to_string());
-        eprintln!("r: {}", r.to_string());
         assert!(verify_signature(msg.clone(), &signature.clone(), &pubkey));
     }
 
@@ -890,7 +934,7 @@ mod tests {
 
     // Step by step checking together with shoup.py
     fn s2s() {
-        let l = 2;
+        let l = 3;
         let k = 2;
         let t = 1;
         let bit_length = 512;
@@ -903,7 +947,7 @@ mod tests {
         eprintln!("delta: {}", delta);
 
         let msg = String::from("hello");
-        let (x1, z, c, r) = sign_with_share(
+        let mss1 = sign_with_share(
             msg.clone(),
             delta,
             &shares[0],
@@ -919,15 +963,15 @@ mod tests {
             msg.clone(),
             v.clone(),
             delta,
-            x1.clone(),
+            mss1.xi.clone(),
             &verification_keys[0],
-            c,
-            z,
+            mss1.c.clone(),
+            mss1.z.clone(),
             &pubkey,
         );
         assert!(verified);
 
-        let (x2, z, c, r) = sign_with_share(
+        let mss2 = sign_with_share(
             msg.clone(),
             delta,
             &shares[1],
@@ -943,18 +987,23 @@ mod tests {
             msg.clone(),
             v.clone(),
             delta,
-            x2.clone(),
+            mss2.xi.clone(),
             &verification_keys[1],
-            c,
-            z,
+            mss2.c.clone(),
+            mss2.z.clone(),
             &pubkey,
         );
 
-        let signature =
-            combine_shares(msg.clone(), delta, vec![x1.clone(), x2.clone()], &pubkey, l);
+        let signature = combine_shares(
+            msg.clone(),
+            delta,
+            vec![mss1.clone(), mss2.clone()],
+            &pubkey,
+            l,
+        );
         // let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
         eprintln!("pz_pubkey = {}", pubkey.n);
-        eprintln!("pz_sh = [{}, {}]", shares[0], shares[1]);
+        eprintln!("pz_sh = [{}, {}]", shares[0].share, shares[1].share);
         eprintln!("pz_e = {}", sk.e.to_string());
         eprintln!("pz_d = {}", sk.d.to_string());
         eprintln!("pz_p = {}", sk.p.to_string());
@@ -963,9 +1012,9 @@ mod tests {
         eprintln!("pz_v = {}", v.to_string());
         eprintln!(
             "pz_ver_keys = [{}, {}]",
-            verification_keys[0], verification_keys[1]
+            verification_keys[0].key, verification_keys[1].key
         );
 
-        let (v, verification_keys) = generate_verification(&pubkey, shares.clone());
+        assert!(verify_signature(msg.clone(), &signature.clone(), &pubkey));
     }
 }

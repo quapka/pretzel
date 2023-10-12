@@ -60,7 +60,8 @@ pub struct Group {
 pub struct GroupParams {}
 
 // FIXME introduce lifetimes?
-// FIXME merge RsaSecretShare and RsaVerificationKey
+// TODO Should merge RsaSecretShare and RsaVerificationKey?
+//      It could be a problem for verifying the proofs.
 #[derive(Debug, Clone)]
 struct RsaSecretShare {
     id: usize,
@@ -361,10 +362,11 @@ fn verify_proof(
     msg: String,
     v: BigInt,
     delta: usize,
-    xi: BigInt,
+    // xi: BigInt,
     vi: &RsaVerificationKey,
-    c: BigInt,
-    z: BigInt,
+    // c: BigInt,
+    // z: BigInt,
+    mss: MsgSignatureShare,
     key: &RSAThresholdPublicKey,
 ) -> bool {
     let msg_digest = Sha256::digest(msg);
@@ -372,18 +374,19 @@ fn verify_proof(
     let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
     let x_tilde: BigInt = x.pow(4 * delta);
 
-    let xi_squared: BigInt = xi.modpow(&BigInt::from(2u8), &key.n);
+    let xi_squared: BigInt = mss.xi.modpow(&BigInt::from(2u8), &key.n);
 
-    let v2z = v.modpow(&z, &key.n);
+    let v2z = v.modpow(&mss.z, &key.n);
     // FIXME refactor param5 and param6 calculations
     // FIXME use checked_mul instead
-    let param5 = v.modpow(&z, &key.n);
-    let tmp1 = vi.key.modpow(&c, &key.n).mod_inverse(&key.n).expect("");
+    let param5 = v.modpow(&mss.z, &key.n);
+    let tmp1 = vi.key.modpow(&mss.c, &key.n).mod_inverse(&key.n).expect("");
     let param5 = (param5 * tmp1).mod_floor(&key.n);
 
-    let param6 = x_tilde.modpow(&z, &key.n);
-    let tmp2 = xi
-        .modpow(&(c.clone().mul(BigInt::from(2u8))), &key.n)
+    let param6 = x_tilde.modpow(&mss.z, &key.n);
+    let tmp2 = mss
+        .xi
+        .modpow(&(mss.c.clone().mul(BigInt::from(2u8))), &key.n)
         .mod_inverse(&key.n)
         .expect("");
     let param6 = (param6 * tmp2).mod_floor(&key.n);
@@ -394,7 +397,9 @@ fn verify_proof(
     commit.extend(xi_squared.to_bytes_be().1);
     commit.extend(param5.to_bytes_be().1);
     commit.extend(param6.to_bytes_be().1);
-    c.cmp(&BigInt::from_bytes_be(Sign::Plus, &Sha256::digest(commit))) == Ordering::Equal
+    mss.c
+        .cmp(&BigInt::from_bytes_be(Sign::Plus, &Sha256::digest(commit)))
+        == Ordering::Equal
 }
 
 fn save_key(key: &RSAThresholdPrivateKey) -> std::io::Result<()> {
@@ -424,6 +429,7 @@ fn combine_shares(
     key: &RSAThresholdPublicKey,
     l: usize,
 ) -> BigInt {
+    // FIXME verify the shares prior to combining them
     let msg_digest = Sha256::digest(msg);
     // FIXME is this correct conversion?
     let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
@@ -777,10 +783,11 @@ mod tests {
             msg.clone(),
             v.clone(),
             delta,
-            mss1.xi.clone(),
+            // mss1.xi.clone(),
             &verification_keys[0],
-            mss1.c.clone(),
-            mss1.z.clone(),
+            mss1.clone(),
+            // mss1.c.clone(),
+            // mss1.z.clone(),
             &pubkey,
         );
         assert!(verified);
@@ -801,10 +808,11 @@ mod tests {
             msg.clone(),
             v.clone(),
             delta,
-            mss2.xi.clone(),
+            // mss2.xi.clone(),
             &verification_keys[1],
-            mss2.c.clone(),
-            mss2.z.clone(),
+            mss2.clone(),
+            // mss2.c.clone(),
+            // mss2.z.clone(),
             &pubkey,
         );
         assert!(verified);
@@ -957,16 +965,8 @@ mod tests {
             let signed_share =
                 sign_with_share(msg.clone(), delta, &share, &pubkey, v.clone(), &vkey);
             sign_shares.push(signed_share.clone());
-            let verified = verify_proof(
-                msg.clone(),
-                v.clone(),
-                delta,
-                signed_share.xi.clone(),
-                &vkey,
-                signed_share.c.clone(),
-                signed_share.z.clone(),
-                &pubkey,
-            );
+            let verified =
+                verify_proof(msg.clone(), v.clone(), delta, &vkey, signed_share, &pubkey);
             assert!(verified);
         }
 

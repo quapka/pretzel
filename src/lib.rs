@@ -38,7 +38,6 @@ use std::ops::{Add, Div, Mul, MulAssign, Neg, Shr};
 use std::str::FromStr;
 
 // FIXME Check that the geneated values/shares etc. are not ones or zeroes for example?
-// TODO rewrite BigInt::new(vec! to ::from
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RSAThresholdPrivateKey {
@@ -102,10 +101,10 @@ pub fn key_gen(
         Ok((p, q)) => (p, q),
         Err(e) => return Err(e),
     };
-    let e: BigInt = BigInt::new(Sign::Plus, vec![0x10001]); // 65537
+    let e: BigInt = BigInt::from(0x10001); // 65537
 
     // FIXME: compare against e directly
-    if l > 65537 {
+    if BigInt::from(l) > e {
         return Err(KeyGenError::GroupTooBig);
     };
 
@@ -181,7 +180,7 @@ fn generate_verification(
     shares: Vec<BigInt>,
 ) -> (BigInt, Vec<BigInt>) {
     let mut rng = ChaCha20Rng::from_entropy();
-    let two = BigInt::new(Sign::Plus, vec![2]);
+    let two = BigInt::from(2u8);
     // FIXME: v is supposed to be from the subgroup of squares, is it?
     let v = rng.gen_bigint_range(&two, &key.n);
     assert_eq!(v.gcd(&key.n).cmp(&BigInt::one()), Ordering::Equal);

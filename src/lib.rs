@@ -193,9 +193,7 @@ fn evaluate_polynomial_mod(
 
 fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> Vec<BigInt> {
     // generate random coefficients
-    // FIXME do not use fixed seed
-    // let mut rng = ChaCha20Rng::from_entropy();
-    let mut rng = ChaCha20Rng::from_seed([0; 32]);
+    let mut rng = ChaCha20Rng::from_entropy();
     let mut a_coeffs: Vec<BigInt> = (0..=(k - 1))
         .map(|_| rng.gen_bigint_range(&BigInt::zero(), &key.m))
         .collect();
@@ -224,7 +222,6 @@ fn generate_verification(
     let two = BigInt::new(Sign::Plus, vec![2]);
     // FIXME: v is supposed to be from the subgroup of squares, is it?
     let v = rng.gen_bigint_range(&two, &key.n);
-    let v = BigInt::from_str("4244723886091646205276032938634598158520683175178340394568637401083400810334183686937172378285686488049831708339932766689772611586692736018400629910585740").unwrap();
     assert_eq!(v.gcd(&key.n).cmp(&BigInt::one()), Ordering::Equal);
     let verification_keys = shares.iter().map(|s| v.modpow(s, &key.n)).collect();
     (v, verification_keys)
@@ -262,18 +259,15 @@ fn sign_with_share(
     // calculate the proof of correctness
     let n_bits = key.n.bits();
     let hash_length = 256;
-    // FIXME use the from_entropy, not seeded prng
-    let mut rng = ChaCha20Rng::from_entropy();
     let two = BigInt::from(2u8);
 
     let bound = two
         .pow(n_bits + 2 * hash_length)
         .checked_sub(&BigInt::one())
         .expect("");
-    let mut FIXME_rng = ChaCha20Rng::from_seed([1; 32]);
-    let r = FIXME_rng.gen_bigint_range(&BigInt::zero(), &bound);
+    let mut rng = ChaCha20Rng::from_entropy();
+    let r = rng.gen_bigint_range(&BigInt::zero(), &bound);
     eprintln!("pz_r = {}", r);
-    // let r = BigInt::from_str("53693788446428497249000208330076177826099019091252024896958392055812632993827369432356417254830292793404811003489972894096144323381164653205849096652696392133313345579587151352005691117081934097136726712441728451073953859693834379262636862518934366500280420783645091839731847459421950368787007761980293510704").unwrap();
     // FIXME the next exponentiation should not be modulo
     let v_prime = v.modpow(&r, &key.n);
     let x_prime = x_tilde.modpow(&r, &key.n);
@@ -653,7 +647,6 @@ mod tests {
 
     #[test]
     fn is_safep_prime() {
-        // let mut rng = ChaCha8Rng::from_seed([0; 32]);
         let mut rng = ChaCha20Rng::from_entropy();
         let p = rng.gen_prime(128);
         eprintln!("{}", p);
@@ -720,7 +713,6 @@ mod tests {
         // assert_eq!(two, Checked::new(U2048::from(2)));
         assert_eq!(two.0.unwrap(), U256::from(2u8));
 
-        // let mut rng = ChaCha8Rng::from_seed([0; 32]);
         // let mut rng = ChaCha20Rng::from_entropy();
         // let modulus = 2048;
         // let key = key_gen(&mut rng, modulus);
@@ -777,7 +769,7 @@ mod tests {
         let l = 2;
         let k = 2;
         let t = 1;
-        let bit_length = 2048;
+        let bit_length = 512;
         let msg = String::from("ahello");
         // dealer's part
         let sk = key_gen(bit_length, l, k, t).unwrap();
@@ -967,7 +959,7 @@ mod tests {
         let l = 2;
         let k = 2;
         let t = 1;
-        let bit_length = 2048;
+        let bit_length = 512;
         let sk = key_gen(bit_length, l, k, t).unwrap();
         // let sk = load_key().unwrap();
         let pubkey = sk.get_public();

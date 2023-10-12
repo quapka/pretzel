@@ -204,7 +204,6 @@ fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> V
             share: evaluate_polynomial_mod(i.into(), &a_coeffs, &key.m).unwrap(),
         })
         .collect();
-    eprintln!("pz_a = [{}, {}]", a_coeffs[0], a_coeffs[1]);
     shares
 }
 
@@ -267,7 +266,7 @@ fn sign_with_share(
         .expect("");
     let mut rng = ChaCha20Rng::from_entropy();
     let r = rng.gen_bigint_range(&BigInt::zero(), &bound);
-    eprintln!("pz_r = {}", r);
+    // eprintln!("pz_r = {}", r);
     // FIXME the next exponentiation should not be modulo
     let v_prime = v.modpow(&r, &key.n);
     let x_prime = x_tilde.modpow(&r, &key.n);
@@ -295,16 +294,16 @@ fn sign_with_share(
 fn lambda(delta: usize, i: usize, j: usize, l: usize, subset: Vec<usize>) -> BigInt {
     // FIXME usize might overflow? what about using BigInt
     let subset: Vec<usize> = subset.into_iter().filter(|&s| s != j).collect();
-    eprintln!("subset: {:?}, j: {}", subset, j);
+    // eprintln!("subset: {:?}, j: {}", subset, j);
 
     let numerator: i64 = subset.iter().map(|&j_p| i as i64 - j_p as i64).product();
     let denominator: i64 = subset.iter().map(|&j_p| j as i64 - j_p as i64).product();
-    eprintln!("numerator: {:?}", numerator);
-    eprintln!("denominator: {:?}", denominator);
+    // eprintln!("numerator: {:?}", numerator);
+    // eprintln!("denominator: {:?}", denominator);
 
     // TODO use mul and div
     let value = BigInt::from(delta as i64 * (numerator / denominator));
-    eprintln!("lambda: {}", value);
+    // eprintln!("lambda: {}", value);
     value
 }
 
@@ -438,7 +437,7 @@ fn combine_shares(
 
         // FIXME exponent might be negative - what then?
         let exponent = BigInt::from(2u8).mul(lamb);
-        eprintln!("exponent: {}", exponent);
+        // eprintln!("exponent: {}", exponent);
 
         w.mul_assign(match exponent.cmp(&BigInt::zero()) {
             Ordering::Less => share
@@ -463,7 +462,7 @@ fn combine_shares(
     // eprintln!("a: {}", a);
     // eprintln!("e_prime: {}", e_prime);
     // eprintln!("b: {}", b);
-    eprintln!("pz_w = {}", w);
+    // eprintln!("pz_w = {}", w);
     // eprintln!("x: {}", x.to_string());
     assert_eq!(
         e_prime
@@ -472,7 +471,7 @@ fn combine_shares(
             .add(&key.e.clone().mul(b.clone()))
             .cmp(&BigInt::one()),
         Ordering::Equal,
-        "AAAaaaaa",
+        "The Bezout's equality e'a + eb != 1 does not hold.",
     );
     assert_eq!(g.cmp(&BigInt::one()), Ordering::Equal);
     let we = w.modpow(&key.e, &key.n);
@@ -506,18 +505,17 @@ fn combine_shares(
         Ordering::Equal => BigInt::one(),
         Ordering::Greater => x.modpow(&b, &key.n),
     };
-    // let y = w.modpow(&a, &key.n) * x.modpow(&b, &key.n);
+
     first.mul(second).mod_floor(&key.n)
-    // y
 }
 
 fn verify_signature(msg: String, signature: &BigInt, key: &RSAThresholdPublicKey) -> bool {
     let msg_digest = Sha256::digest(msg);
     let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+
     match signature.modpow(&key.e, &key.n).cmp(&x) {
-        Ordering::Less => false,
+        Ordering::Less | Ordering::Greater => false,
         Ordering::Equal => true,
-        Ordering::Greater => false,
     }
 }
 
@@ -525,6 +523,7 @@ fn regular_signature(msg: String, key: &RSAThresholdPrivateKey) -> BigInt {
     let msg_digest = Sha256::digest(msg);
     let modulus = &key.p.clone().mul(key.q.clone());
     let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&modulus);
+
     x.modpow(&key.d, &modulus)
 }
 
@@ -930,13 +929,16 @@ mod tests {
         let i2 = BigInt::from_str(&i_string).unwrap();
         assert_eq!(i.cmp(&i2), Ordering::Equal);
     }
-    #[test]
-
+    // TODO add a test where the delta factorial is bigger than the modulus
     // Step by step checking together with shoup.py
+    #[test]
     fn s2s() {
-        let l = 3;
-        let k = 2;
-        let t = 1;
+        // let mut rng = ChaCha20Rng::from_entropy();
+        // let r = rng.gen_range(2..7);
+        // eprintln!("l = k = {}", r);
+        let l = 5;
+        let k = 3;
+        let t = k - 1;
         let bit_length = 512;
         let sk = key_gen(bit_length, l, k, t).unwrap();
         // let sk = load_key().unwrap();
@@ -944,77 +946,35 @@ mod tests {
         let shares = generate_secret_shares(&sk, l, k);
         let (v, verification_keys) = generate_verification(&pubkey, shares.clone());
         let delta = factorial(l);
-        eprintln!("delta: {}", delta);
+        // eprintln!("delta: {}", delta);
 
         let msg = String::from("hello");
-        let mss1 = sign_with_share(
-            msg.clone(),
-            delta,
-            &shares[0],
-            &pubkey,
-            v.clone(),
-            &verification_keys[0],
-        );
-        // eprintln!("{:?}", shares[0]);
-        // eprintln!("{:?}", x1);
-        // eprintln!("{:?}", z);
-        // eprintln!("{:?}", c);
-        let verified = verify_proof(
-            msg.clone(),
-            v.clone(),
-            delta,
-            mss1.xi.clone(),
-            &verification_keys[0],
-            mss1.c.clone(),
-            mss1.z.clone(),
-            &pubkey,
-        );
-        assert!(verified);
+        let mut sign_shares = vec![];
+        for (share, vkey) in zip(
+            shares.iter().take(k),
+            verification_keys.clone().iter().take(k),
+        ) {
+            let signed_share =
+                sign_with_share(msg.clone(), delta, &share, &pubkey, v.clone(), &vkey);
+            sign_shares.push(signed_share.clone());
+            let verified = verify_proof(
+                msg.clone(),
+                v.clone(),
+                delta,
+                signed_share.xi.clone(),
+                &vkey,
+                signed_share.c.clone(),
+                signed_share.z.clone(),
+                &pubkey,
+            );
+            assert!(verified);
+        }
 
-        let mss2 = sign_with_share(
-            msg.clone(),
-            delta,
-            &shares[1],
-            &pubkey,
-            v.clone(),
-            &verification_keys[1],
-        );
-        // eprintln!("{:?}", shares[0]);
-        // eprintln!("{:?}", x2);
-        // eprintln!("{:?}", z);
-        // eprintln!("{:?}", c);
-        let verified = verify_proof(
-            msg.clone(),
-            v.clone(),
-            delta,
-            mss2.xi.clone(),
-            &verification_keys[1],
-            mss2.c.clone(),
-            mss2.z.clone(),
-            &pubkey,
-        );
+        let signature = combine_shares(msg.clone(), delta, sign_shares, &pubkey, l);
+        let reg_sig = regular_signature(msg.clone(), &sk);
 
-        let signature = combine_shares(
-            msg.clone(),
-            delta,
-            vec![mss1.clone(), mss2.clone()],
-            &pubkey,
-            l,
-        );
-        // let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
-        eprintln!("pz_pubkey = {}", pubkey.n);
-        eprintln!("pz_sh = [{}, {}]", shares[0].share, shares[1].share);
-        eprintln!("pz_e = {}", sk.e.to_string());
-        eprintln!("pz_d = {}", sk.d.to_string());
-        eprintln!("pz_p = {}", sk.p.to_string());
-        eprintln!("pz_q = {}", sk.q.to_string());
-        eprintln!("pz_m = {}", sk.m.to_string());
-        eprintln!("pz_v = {}", v.to_string());
-        eprintln!(
-            "pz_ver_keys = [{}, {}]",
-            verification_keys[0].key, verification_keys[1].key
-        );
-
+        // FIXME apparently sometimes our signature is differente from the regular signature.
         assert!(verify_signature(msg.clone(), &signature.clone(), &pubkey));
+        assert_eq!(signature, reg_sig);
     }
 }

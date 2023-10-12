@@ -36,23 +36,9 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::ops::{Add, Div, Mul, MulAssign, Neg, Shr};
 use std::str::FromStr;
-// pub fn generate_primes(modulus_bit_length: usize) -> (U2048, U2048) {
-//     let p: U2048 = generate_safe_prime(Some(modulus_bit_length / 2));
-//     let mut q: U2048 = generate_safe_prime(Some(modulus_bit_length / 2));
-//     while p == q {
-//         q = generate_safe_prime(Some(modulus_bit_length / 2));
-//     }
-//     (p, q)
-// }
-//
 
 // FIXME Check that the geneated values/shares etc. are not ones or zeroes for example?
 // TODO rewrite BigInt::new(vec! to ::from
-
-// #[derive(Serialize, Deserialize)]
-// pub struct Hello {
-//     x: u32,
-// }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RSAThresholdPrivateKey {
@@ -174,32 +160,12 @@ fn evaluate_polynomial_mod(
     Ok(rem)
 }
 
-// fn evaluate_polynomial_mod(value: U4096, coeffs: Vec<U4096>, modulus: U4096) -> U4096 {
-//     let mut result = U4096::ZERO;
-//     let ui = U4096::from_u32(i.try_into().unwrap());
-//     for i in 1..=coeffs.len() {
-//         eprintln!("{}", i);
-//         ui.checked_mul(&coeffs[i]).unwrap(); //, &modulus, modulus.invert());
-//                                              // , coeffs[0]),
-
-//         // let iu: u32 = i.try_into().unwrap();
-//         // result.add_mod(
-//         //     &(U4096::from_u32(i.try_into().unwrap()) * coeffs[0]),
-//         //     &modulus,
-//         // );
-//     }
-//     U4096::ONE
-// }
-
 fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> Vec<BigInt> {
     // generate random coefficients
     let mut rng = ChaCha20Rng::from_entropy();
     let mut a_coeffs: Vec<BigInt> = (0..=(k - 1))
         .map(|_| rng.gen_bigint_range(&BigInt::zero(), &key.m))
         .collect();
-    // a_coeffs[0] = BigInt::from_str("1964949059311308021464287817454174246391791722298554351548342236454577667635579351780055075188778763626572315299242769622880465527776573273505712167043975").unwrap();
-    // a_coeffs[1] = BigInt::from_str("1962971223185583157091710888405504126754089944806194575680183226658725549481102406993563273138486206679982104297466020701858248255554638002341199515306969").unwrap();
-    // eprintln!("len coeffs: {}", a_coeffs.len());
     // fix a_0 to the private exponent
     a_coeffs[0] = key.d.clone();
     // calculate the individual shares
@@ -207,10 +173,6 @@ fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> V
         .map(|i| evaluate_polynomial_mod(i.into(), &a_coeffs, &key.m).unwrap())
         .collect();
     eprintln!("pz_a = [{}, {}]", a_coeffs[0], a_coeffs[1]);
-    // eprintln!("a[1]: {}", a_coeffs[1]);
-    // assert_eq!(shares[0].cmp(&BigInt::from_str("1747700418275762376830724763278595896157786077352939823219049535328729069488046605257052651265554445947453247555831239910376524549357465252318251229779905").unwrap()), Ordering::Equal, "Different shares[0]");
-    // assert_eq!(shares[1].cmp(&BigInt::from_str("1530451777240216732197161709103017545923780432407325294889756834202880471340513858734050227342330128268334179812419710197872583570938357231130790292515835").unwrap()), Ordering::Equal, "Different share[1]");
-
     shares
 }
 
@@ -370,10 +332,6 @@ fn verify_proof(
     let xi_squared: BigInt = xi.modpow(&BigInt::from(2u8), &key.n);
 
     let v2z = v.modpow(&z, &key.n);
-    // minus c
-    // let mut neg_c = c.to_bigint().expect("Cannot negate -c");
-    // negate_sign(&mut neg_c);
-    // v^z vi^{-c}
     // FIXME refactor param5 and param6 calculations
     // FIXME use checked_mul instead
     let param5 = v.modpow(&z, &key.n);
@@ -387,29 +345,12 @@ fn verify_proof(
         .expect("");
     let param6 = (param6 * tmp2).mod_floor(&key.n);
 
-    // let vi2negc = vi
-    //     .to_bigint()
-    //     .expect("")
-    //     .modpow(&neg_c, &key.n.to_bigint().expect(""));
-    // let v2z_vi2negc = (v2z.to_bigint().expect("") * vi2negc)
-    //     .to_biguint()
-    //     .expect("");
-
-    // let x_tilde2z = x_tilde.modpow(&z, &key.n);
-    // let neg2c: BigInt = neg_c * 2;
-    // let x_tilde2z_xi2negc: BigInt = (x_tilde2z.to_bigint().expect("") * neg2c)
-    //     .to_biguint()
-    //     .expect("");
-
     let mut commit = v.to_bytes_be().1;
     commit.extend(x_tilde.to_bytes_be().1);
     commit.extend(vi.to_bytes_be().1);
     commit.extend(xi_squared.to_bytes_be().1);
     commit.extend(param5.to_bytes_be().1);
     commit.extend(param6.to_bytes_be().1);
-    // commit.extend(v2z_vi2negc.to_biguint().expect("").to_bytes_be());
-    // commit.extend(x_tilde2z_xi2negc.to_bytes_be());
-    // commit.
     c.cmp(&BigInt::from_bytes_be(Sign::Plus, &Sha256::digest(commit))) == Ordering::Equal
 }
 
@@ -508,12 +449,6 @@ fn combine_shares(
         Ordering::Equal,
         "w^e != x^e'"
     );
-    // assert_eq!(
-    //     w.modpow(&key.e, &key.n)
-    //         .cmp(&x.modpow(&BigInt::from(e_prime), &key.n)),
-    //     Ordering::Equal,
-    //     "w^e != x^e'"
-    // );
 
     // NOTE raise to the negative power is not possible at the moment
     let first = match a.cmp(&BigInt::zero()) {

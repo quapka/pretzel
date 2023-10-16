@@ -17,12 +17,13 @@ errors = "*"
 rand = "0.8.5"
 crypto-bigint = { version = "0.5.2", features = ["rand", "rand_core", "zeroize"] }
 crypto-primes = "0.3.0"
-rsa = "*"
+# TODO We depend on `hazmat` features so that we don't have to reimplement padding algorithms
+rsa = { path = "/home/qup/projects/RSA", features = ["hazmat"] }
 rand_chacha = "0.3"
 thiserror="*"
 log ="*"
 factorial = "*"
-sha2 = "*"
+sha2 = { version = "0.10.8", features = ["oid"] }
 serde = {version = "1.0.188", features = ["derive"]}
 serde_json = "*"
 modinverse = "*"

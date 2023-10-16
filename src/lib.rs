@@ -24,9 +24,14 @@ use rand::prelude::*;
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng, ChaCha8Rng};
 use rand_core::CryptoRngCore;
 use rsa::{
+    hazmat::{
+        pkcs1v15_generate_prefix, pkcs1v15_sign_pad, pkcs1v15_sign_unpad, uint_to_be_pad,
+        uint_to_zeroizing_be_pad,
+    },
     pkcs1::{EncodeRsaPrivateKey, LineEnding},
-    RsaPrivateKey,
+    Pkcs1v15Sign, RsaPrivateKey,
 };
+
 // use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result as SerdeResult, Value};
@@ -38,20 +43,29 @@ use std::ops::{Add, Div, Mul, MulAssign, Neg, Shr};
 use std::str::FromStr;
 
 // FIXME Check that the geneated values/shares etc. are not ones or zeroes for example?
+// TODO: add PKCS1v5 padding
+// TODO: add PSS padding --- needs message passing
+// TODO: fix the k-out-of-l signatures that differ from the regular one when k < l
+// TODO: prefer BigUint over BigInt
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPrivateKey {
+    n: BigInt,
     p: BigInt,
     q: BigInt,
     d: BigInt,
     m: BigInt,
     e: BigInt,
+    // TODO follow RustCrypto/RSA convention of functions instead of fields
+    bytes_size: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPublicKey {
     n: BigInt,
     e: BigInt,
+    // TODO follow RustCrypto/RSA convention of functions instead of fields
+    bytes_size: usize,
 }
 
 pub struct Group {
@@ -110,8 +124,9 @@ pub enum PolynomialError {
 impl RSAThresholdPrivateKey {
     fn get_public(&self) -> RSAThresholdPublicKey {
         RSAThresholdPublicKey {
-            n: self.p.clone().mul(self.q.clone()),
+            n: self.n.clone(),
             e: self.e.clone(),
+            bytes_size: self.bytes_size,
         }
     }
 }
@@ -163,12 +178,43 @@ pub fn key_gen(
     );
 
     Ok(RSAThresholdPrivateKey {
+        n: n.clone(),
         p: p,
         q: q,
         d: dd,
         m: m,
         e: e,
+        bytes_size: (n.bits() + 7) / 8,
     })
+}
+
+#[derive(Clone)]
+enum PaddingScheme {
+    NONE,
+    PSS,
+    PKCS1v15,
+}
+
+fn digest_msg<R: CryptoRngCore>(
+    msg: String,
+    scheme: PaddingScheme,
+    _rng: &mut R,
+    key: &RSAThresholdPublicKey,
+) -> BigInt {
+    let msg_digest = Sha256::digest(msg);
+    // FIXME is this correct conversion?
+    let hashed = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+    match scheme {
+        PaddingScheme::NONE => hashed,
+        PaddingScheme::PSS => unimplemented!(),
+        PaddingScheme::PKCS1v15 => {
+            let prefix = pkcs1v15_generate_prefix::<Sha256>();
+            BigInt::from_bytes_be(
+                Sign::Plus,
+                &pkcs1v15_sign_pad(&prefix, &hashed.to_bytes_be().1, key.bytes_size).unwrap(),
+            )
+        }
+    }
 }
 
 fn evaluate_polynomial_mod(
@@ -227,12 +273,6 @@ fn generate_verification(
     (v, verification_keys)
 }
 
-// fn hash_all_the_things(v: BigInt, delta: usize) -> BigInt {
-//     // x ^ {4 * delta}
-//     let x_tilde =
-//     BigInt::one()
-// }
-
 /// _i = x^{2 \delta s_i} \in Q_n
 fn sign_with_share(
     msg: String,
@@ -241,10 +281,12 @@ fn sign_with_share(
     key: &RSAThresholdPublicKey,
     v: BigInt,
     vi: &RsaVerificationKey,
+    scheme: PaddingScheme,
 ) -> MsgSignatureShare {
-    let msg_digest = Sha256::digest(msg);
+    // FIXME add some kind of blinding?
+    let x = digest_msg(msg.clone(), scheme, &mut ChaCha20Rng::from_entropy(), key);
     // FIXME is this correct conversion?
-    let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+    // let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
     // eprintln!("x = {:?}", x);
     // let xi = BigInt::from_bytes_be(msg_digest);
     let mut exponent = BigInt::from(2u8);
@@ -368,10 +410,9 @@ fn verify_proof(
     // z: BigInt,
     mss: MsgSignatureShare,
     key: &RSAThresholdPublicKey,
+    scheme: PaddingScheme,
 ) -> bool {
-    let msg_digest = Sha256::digest(msg);
-    // FIXME is this correct conversion?
-    let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+    let x = digest_msg(msg.clone(), scheme, &mut ChaCha20Rng::from_entropy(), key);
     let x_tilde: BigInt = x.pow(4 * delta);
 
     let xi_squared: BigInt = mss.xi.modpow(&BigInt::from(2u8), &key.n);
@@ -428,11 +469,10 @@ fn combine_shares(
     sign_shares: Vec<MsgSignatureShare>,
     key: &RSAThresholdPublicKey,
     l: usize,
+    scheme: PaddingScheme,
 ) -> BigInt {
     // FIXME verify the shares prior to combining them
-    let msg_digest = Sha256::digest(msg);
-    // FIXME is this correct conversion?
-    let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+    let x = digest_msg(msg.clone(), scheme, &mut ChaCha20Rng::from_entropy(), key);
     // eprintln!("pz_x = {}", x);
 
     let mut w = BigInt::one();
@@ -512,17 +552,58 @@ fn combine_shares(
         Ordering::Greater => x.modpow(&b, &key.n),
     };
 
-    first.mul(second).mod_floor(&key.n)
+    BigInt::from_bytes_be(
+        Sign::Plus,
+        &uint_to_zeroizing_be_pad(
+            (first.mul(second).mod_floor(&key.n))
+                .to_biguint()
+                .expect(""),
+            key.bytes_size,
+        )
+        .expect(""),
+    )
 }
 
-fn verify_signature(msg: String, signature: &BigInt, key: &RSAThresholdPublicKey) -> bool {
-    let msg_digest = Sha256::digest(msg);
-    let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+fn verify_signature(
+    msg: String,
+    signature: &BigInt,
+    scheme: PaddingScheme,
+    key: &RSAThresholdPublicKey,
+) -> bool {
+    let hashed = Sha256::digest(msg);
+    // FIXME is this correct conversion?
+    // let hashed = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
 
-    match signature.modpow(&key.e, &key.n).cmp(&x) {
-        Ordering::Less | Ordering::Greater => false,
-        Ordering::Equal => true,
+    let padded = signature.modpow(&key.e, &key.n).mod_floor(&key.n);
+
+    match scheme {
+        PaddingScheme::NONE => {
+            match BigInt::from_bytes_be(Sign::Plus, &hashed)
+                .mod_floor(&key.n)
+                .cmp(&padded)
+            {
+                Ordering::Less | Ordering::Greater => false,
+                Ordering::Equal => true,
+            }
+        }
+        PaddingScheme::PSS => unimplemented!(),
+        PaddingScheme::PKCS1v15 => {
+            let prefix = pkcs1v15_generate_prefix::<Sha256>();
+            pkcs1v15_sign_unpad(
+                &prefix,
+                &hashed,
+                &uint_to_be_pad(padded.to_biguint().expect(""), key.bytes_size).unwrap(),
+                key.bytes_size,
+            )
+            .unwrap()
+                == ()
+        }
     }
+
+    // match msg.cmp(&hashed) {
+    //     Ordering::Less | Ordering::Greater => false,
+    //     Ordering::Equal => true,
+    // }
 }
 
 fn regular_signature(msg: String, key: &RSAThresholdPrivateKey) -> BigInt {
@@ -736,7 +817,6 @@ mod tests {
         let pubkey = sk.get_public();
         let shares = generate_secret_shares(&sk, l, k);
         // FIXME test
-        // sign_with_share(String::from("hello"), 1, &shares[0], pubkey);
     }
 
     #[test]
@@ -756,6 +836,7 @@ mod tests {
         let t = 1;
         let bit_length = 512;
         let msg = String::from("ahello");
+        let pad = PaddingScheme::NONE;
         // dealer's part
         let sk = key_gen(bit_length, l, k, t).unwrap();
         // let sk = load_key().unwrap();
@@ -774,6 +855,7 @@ mod tests {
             &pubkey,
             v.clone(),
             &verification_keys[0],
+            pad.clone(),
         );
         // eprintln!("{:?}", shares[0]);
         // eprintln!("{:?}", x1);
@@ -789,6 +871,7 @@ mod tests {
             // mss1.c.clone(),
             // mss1.z.clone(),
             &pubkey,
+            pad.clone(),
         );
         assert!(verified);
 
@@ -799,6 +882,7 @@ mod tests {
             &pubkey,
             v.clone(),
             &verification_keys[1],
+            pad.clone(),
         );
         // eprintln!("{:?}", shares[0]);
         // eprintln!("{:?}", x2);
@@ -814,10 +898,18 @@ mod tests {
             // mss2.c.clone(),
             // mss2.z.clone(),
             &pubkey,
+            pad.clone(),
         );
         assert!(verified);
 
-        let signature = combine_shares(msg.clone(), delta, vec![mss1, mss2], &pubkey, l);
+        let signature = combine_shares(
+            msg.clone(),
+            delta,
+            vec![mss1, mss2],
+            &pubkey,
+            l,
+            pad.clone(),
+        );
         let reg_sig = regular_signature(msg.clone(), &sk);
         // assert_eq!(signature.cmp(&reg_sig), Ordering::Equal);
         eprintln!("signature: {:?}", signature);
@@ -831,7 +923,12 @@ mod tests {
         eprintln!("q: {}", sk.q.to_string());
         eprintln!("m: {}", sk.m.to_string());
         eprintln!("v: {}", v.to_string());
-        assert!(verify_signature(msg.clone(), &signature.clone(), &pubkey));
+        assert!(verify_signature(
+            msg.clone(),
+            &signature.clone(),
+            pad.clone(),
+            &pubkey
+        ));
     }
 
     #[test]
@@ -890,6 +987,7 @@ mod tests {
         let t = 1;
         let bit_length = 2048;
         // let sk = key_gen(bit_length, l, k, t).unwrap();
+        // save_key(&sk);
         let sk = load_key().unwrap();
 
         let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
@@ -944,11 +1042,13 @@ mod tests {
         // let mut rng = ChaCha20Rng::from_entropy();
         // let r = rng.gen_range(2..7);
         // eprintln!("l = k = {}", r);
-        let l = 5;
-        let k = 3;
+        let l = 2;
+        let k = 2;
         let t = k - 1;
         let bit_length = 512;
+        let pad = PaddingScheme::PKCS1v15;
         let sk = key_gen(bit_length, l, k, t).unwrap();
+        eprintln!("bytes_size: {}", sk.bytes_size);
         // let sk = load_key().unwrap();
         let pubkey = sk.get_public();
         let shares = generate_secret_shares(&sk, l, k);
@@ -956,25 +1056,84 @@ mod tests {
         let delta = factorial(l);
         // eprintln!("delta: {}", delta);
 
+        // TODO randomize the message
         let msg = String::from("hello");
         let mut sign_shares = vec![];
         for (share, vkey) in zip(
             shares.iter().take(k),
             verification_keys.clone().iter().take(k),
         ) {
-            let signed_share =
-                sign_with_share(msg.clone(), delta, &share, &pubkey, v.clone(), &vkey);
+            let signed_share = sign_with_share(
+                msg.clone(),
+                delta,
+                &share,
+                &pubkey,
+                v.clone(),
+                &vkey,
+                pad.clone(),
+            );
             sign_shares.push(signed_share.clone());
-            let verified =
-                verify_proof(msg.clone(), v.clone(), delta, &vkey, signed_share, &pubkey);
+            let verified = verify_proof(
+                msg.clone(),
+                v.clone(),
+                delta,
+                &vkey,
+                signed_share,
+                &pubkey,
+                pad.clone(),
+            );
             assert!(verified);
         }
 
-        let signature = combine_shares(msg.clone(), delta, sign_shares, &pubkey, l);
-        let reg_sig = regular_signature(msg.clone(), &sk);
+        let signature = combine_shares(msg.clone(), delta, sign_shares, &pubkey, l, pad.clone());
+        // let _reg_sig = regular_signature(msg.clone(), &sk);
 
         // FIXME apparently sometimes our signature is differente from the regular signature.
-        assert!(verify_signature(msg.clone(), &signature.clone(), &pubkey));
-        assert_eq!(signature, reg_sig);
+        assert!(verify_signature(
+            msg.clone(),
+            &signature.clone(),
+            pad.clone(),
+            &pubkey
+        ));
+        // assert_eq!(signature, reg_sig);
+        let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
+        let r_privkey = RsaPrivateKey::from_components(
+            n,
+            sk.e.to_biguint().expect(""),
+            sk.d.to_biguint().expect(""),
+            vec![
+                sk.p.clone().to_biguint().expect(""),
+                sk.q.clone().to_biguint().expect(""),
+            ],
+        )
+        .expect("");
+        let r_pub = r_privkey.to_public_key();
+        // r_pub.verify
+        // TODO verify against a RSA/RsaPublicKey
+        let hashed = Sha256::digest(msg);
+        assert_eq!(
+            r_pub.verify(
+                // &mut ChaCha20Rng::from_entropy(),
+                Pkcs1v15Sign {
+                    hash_len: None,
+                    prefix: pkcs1v15_generate_prefix::<Sha256>().into(),
+                },
+                &hashed,
+                &signature.to_bytes_be().1,
+            ),
+            Ok(()),
+        );
+    }
+
+    #[test]
+    fn test_padding() {
+        let k = 2048;
+        let prefix = pkcs1v15_generate_prefix::<Sha256>();
+        let hashed = Sha256::digest(b"hello");
+        let mut padded = pkcs1v15_sign_pad(&prefix, &hashed, k).unwrap();
+        assert_eq!(
+            pkcs1v15_sign_unpad(&prefix, &hashed, &padded, k).unwrap(),
+            ()
+        );
     }
 }

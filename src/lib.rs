@@ -203,7 +203,9 @@ fn digest_msg<R: CryptoRngCore>(
 ) -> BigInt {
     let msg_digest = Sha256::digest(msg);
     // FIXME is this correct conversion?
+    // TODO Add support for various hash functions
     let hashed = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+    // TODO there are four variants for PSS
     match scheme {
         PaddingScheme::NONE => hashed,
         PaddingScheme::PSS => unimplemented!(),

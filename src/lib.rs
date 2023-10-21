@@ -169,7 +169,7 @@ pub fn key_gen(
     bit_length: usize,
     l: usize,
     k: usize,
-    t: usize,
+    // t: usize,
 ) -> Result<RSAThresholdPrivateKey, KeyGenError> {
     // FIXME add bounds on l, k and t
     let (p, q) = match generate_p_and_q(bit_length) {
@@ -728,19 +728,19 @@ mod tests {
         // generate_primes(32);
         let l = 3;
         let k = 2;
-        let t = 1;
+        // let t = 1;
         let bit_length = 32;
-        let sk = key_gen(bit_length, l, k, t);
-        // eprintln!("{:?}", sk.get_public());
+        let _sk = key_gen(bit_length, l, k); //, t);
+                                             // eprintln!("{:?}", sk.get_public());
     }
 
     #[test]
     fn gen_shares() {
         let l = 3;
         let k = 2;
-        let t = 1;
+        // let t = 1;
         let bit_length = 128;
-        let sk = key_gen(bit_length, l, k, t).unwrap();
+        let sk = key_gen(bit_length, l, k).unwrap();
         let shares = generate_secret_shares(&sk, l, k);
         eprintln!("shares: {:?}", shares);
         let (v, vks) = generate_verification(&sk.get_public(), shares);
@@ -846,9 +846,9 @@ mod tests {
     fn signing() {
         let l = 3;
         let k = 2;
-        let t = 1;
+        // let t = 1;
         let bit_length = 32;
-        let sk = key_gen(bit_length, l, k, t).unwrap();
+        let sk = key_gen(bit_length, l, k).unwrap();
         let pubkey = sk.get_public();
         let shares = generate_secret_shares(&sk, l, k);
         // FIXME test
@@ -868,12 +868,12 @@ mod tests {
         // initialize the group
         let l = 3;
         let k = 2;
-        let t = 1;
+        // let t = 1;
         let bit_length = 512;
         let msg = String::from("ahello");
         let pad = PaddingScheme::NONE;
         // dealer's part
-        let sk = key_gen(bit_length, l, k, t).unwrap();
+        let sk = key_gen(bit_length, l, k).unwrap();
         // let sk = load_key().unwrap();
         let pubkey = sk.get_public();
         let shares = generate_secret_shares(&sk, l, k);
@@ -999,7 +999,7 @@ mod tests {
     //     let bit_length = 2048;
     //     let msg = String::from("hello");
     //     // dealer's part
-    //     let sk = key_gen(bit_length, l, k, t).unwrap();
+    //     let sk = key_gen(bit_length, l, k).unwrap();
     //     let _ = save_key(&sk);
     //     let loaded_key = load_key().unwrap();
     //     assert_eq!(sk.p, loaded_key.p);
@@ -1019,9 +1019,9 @@ mod tests {
     fn convert_to_pem() {
         let l = 2;
         let k = 2;
-        let t = 1;
+        // let t = 1;
         let bit_length = 2048;
-        // let sk = key_gen(bit_length, l, k, t).unwrap();
+        // let sk = key_gen(bit_length, l, k).unwrap();
         // save_key(&sk);
         let sk = load_key().unwrap();
 
@@ -1048,9 +1048,9 @@ mod tests {
     fn print_private() {
         let l = 2;
         let k = 2;
-        let t = 1;
+        // let t = 1;
         let bit_length = 2048;
-        // let sk = key_gen(bit_length, l, k, t).unwrap();
+        // let sk = key_gen(bit_length, l, k).unwrap();
         let sk = load_key().unwrap();
 
         let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
@@ -1079,10 +1079,10 @@ mod tests {
         // eprintln!("l = k = {}", r);
         let l = 2;
         let k = 2;
-        let t = k - 1;
+        // let t = k - 1;
         let bit_length = 512;
         let pad = PaddingScheme::PKCS1v15;
-        let sk = key_gen(bit_length, l, k, t).unwrap();
+        let sk = key_gen(bit_length, l, k).unwrap();
         eprintln!("bytes_size: {}", sk.bytes_size);
         // let sk = load_key().unwrap();
         let pubkey = sk.get_public();

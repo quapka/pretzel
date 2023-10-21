@@ -220,7 +220,7 @@ pub fn key_gen(
 #[derive(Clone)]
 enum PaddingScheme {
     NONE,
-    PSS,
+    _PSS,
     PKCS1v15,
 }
 
@@ -237,7 +237,7 @@ fn digest_msg<R: CryptoRngCore>(
     // TODO there are four variants for PSS
     match scheme {
         PaddingScheme::NONE => hashed,
-        PaddingScheme::PSS => unimplemented!(),
+        PaddingScheme::_PSS => unimplemented!(),
         PaddingScheme::PKCS1v15 => {
             let prefix = pkcs1v15_generate_prefix::<Sha256>();
             BigInt::from_bytes_be(
@@ -621,7 +621,7 @@ fn verify_signature(
                 Ordering::Equal => true,
             }
         }
-        PaddingScheme::PSS => unimplemented!(),
+        PaddingScheme::_PSS => unimplemented!(),
         PaddingScheme::PKCS1v15 => {
             let prefix = pkcs1v15_generate_prefix::<Sha256>();
             pkcs1v15_sign_unpad(

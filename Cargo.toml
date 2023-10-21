@@ -18,7 +18,7 @@ rand = "0.8.5"
 crypto-bigint = { version = "0.5.2", features = ["rand", "rand_core", "zeroize"] }
 crypto-primes = "0.3.0"
 # TODO We depend on `hazmat` features so that we don't have to reimplement padding algorithms
-rsa = { path = "/home/qup/projects/RSA", features = ["hazmat"] }
+rsa = { path = "/home/qup/projects/RSA", features = ["hazmat", "serde"] }
 rand_chacha = "0.3"
 thiserror="*"
 log ="*"

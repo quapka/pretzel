@@ -29,7 +29,7 @@ use rsa::{
         uint_to_zeroizing_be_pad,
     },
     pkcs1::{EncodeRsaPrivateKey, LineEnding},
-    Pkcs1v15Sign, RsaPrivateKey,
+    Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey,
 };
 
 // use rsa::{RsaPrivateKey, RsaPublicKey};
@@ -47,6 +47,34 @@ use std::str::FromStr;
 // TODO: add PSS padding --- needs message passing
 // TODO: fix the k-out-of-l signatures that differ from the regular one when k < l
 // TODO: prefer BigUint over BigInt
+
+// Deal function to generate from
+// inputs k-out-of-n
+// return vec of PrivateShares and vec of VerificationKey
+// SecretPackage and PublicPackage
+
+// for signing send MessageSignRequest
+// return PartialSignature
+//
+//
+// PublicPackage: HashMap of PartialSignature VerificationKeys, VerificationKey
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct PublicPackage {
+    v: BigInt,
+    verification_keys: Vec<RsaVerificationKey>,
+    public_key: RsaPublicKey,
+}
+// TODO add unique IDs and also keep the unique ideas around
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct SecretPackage {
+    // TODO use bigger IDs? globally unique ids?
+    pub uid: usize,
+    pub gid: Option<usize>,
+    // TODO This is not nice, but needed for meesign-crypto integration
+    pub share: RsaSecretShare,
+}
+
+// dealer cobines/aggregates the signatures
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPrivateKey {
@@ -76,22 +104,23 @@ pub struct GroupParams {}
 // FIXME introduce lifetimes?
 // TODO Should merge RsaSecretShare and RsaVerificationKey?
 //      It could be a problem for verifying the proofs.
-#[derive(Debug, Clone)]
-struct RsaSecretShare {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RsaSecretShare {
+    // TODO the id is both on SecretPackage, RsaSecretShare
     id: usize,
     share: BigInt,
     // m: BigInt,
 }
 
 // FIXME introduce lifetimes?
-#[derive(Debug, Clone)]
-struct RsaVerificationKey {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RsaVerificationKey {
     id: usize,
     key: BigInt,
 }
 
-#[derive(Debug, Clone)]
-struct MsgSignatureShare {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MsgSignatureShare {
     id: usize,
     xi: BigInt,
     z: BigInt,
@@ -122,7 +151,7 @@ pub enum PolynomialError {
 }
 
 impl RSAThresholdPrivateKey {
-    fn get_public(&self) -> RSAThresholdPublicKey {
+    pub fn get_public(&self) -> RSAThresholdPublicKey {
         RSAThresholdPublicKey {
             n: self.n.clone(),
             e: self.e.clone(),
@@ -238,7 +267,11 @@ fn evaluate_polynomial_mod(
     Ok(rem)
 }
 
-fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> Vec<RsaSecretShare> {
+pub fn generate_secret_shares(
+    key: &RSAThresholdPrivateKey,
+    l: usize,
+    k: usize,
+) -> Vec<RsaSecretShare> {
     // generate random coefficients
     let mut rng = ChaCha20Rng::from_entropy();
     let mut a_coeffs: Vec<BigInt> = (0..=(k - 1))
@@ -256,7 +289,7 @@ fn generate_secret_shares(key: &RSAThresholdPrivateKey, l: usize, k: usize) -> V
     shares
 }
 
-fn generate_verification(
+pub fn generate_verification(
     key: &RSAThresholdPublicKey,
     shares: Vec<RsaSecretShare>,
 ) -> (BigInt, Vec<RsaVerificationKey>) {

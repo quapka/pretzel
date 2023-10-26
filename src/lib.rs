@@ -32,7 +32,6 @@ use rsa::{
     Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey,
 };
 
-// use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result as SerdeResult, Value};
 use std::any::type_name;
@@ -157,6 +156,47 @@ impl RSAThresholdPrivateKey {
             e: self.e.clone(),
             bytes_size: self.bytes_size,
         }
+    }
+}
+
+// NOTE: Conversion to RsaPrivateKey is here in order to be able to build the RsaPublicKey.
+// However, Having RsaPrivateKey from RSAThresholdPrivateKey sounds a bit dangerous. The threshold
+// variant should not be available for the non-treshold one as that could lead to a misuse.
+impl From<RSAThresholdPrivateKey> for RsaPrivateKey {
+    fn from(private_key: RSAThresholdPrivateKey) -> Self {
+        (&private_key).into()
+    }
+}
+
+impl From<&RSAThresholdPrivateKey> for RsaPrivateKey {
+    fn from(private_key: &RSAThresholdPrivateKey) -> Self {
+        let n = (private_key.p.clone() * private_key.q.clone())
+            .to_biguint()
+            .expect("");
+
+        RsaPrivateKey::from_components(
+            n,
+            private_key.e.to_biguint().expect(""),
+            private_key.d.to_biguint().expect(""),
+            vec![
+                private_key.p.clone().to_biguint().expect(""),
+                private_key.q.clone().to_biguint().expect(""),
+            ],
+        )
+        .unwrap()
+    }
+}
+
+impl From<RSAThresholdPrivateKey> for RsaPublicKey {
+    fn from(private_key: RSAThresholdPrivateKey) -> Self {
+        (&private_key).into()
+    }
+}
+
+impl From<&RSAThresholdPrivateKey> for RsaPublicKey {
+    fn from(private_key: &RSAThresholdPrivateKey) -> Self {
+        let rsa_key: RsaPrivateKey = private_key.into();
+        RsaPublicKey::from(&rsa_key)
     }
 }
 

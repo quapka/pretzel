@@ -106,7 +106,34 @@ pub struct SecretPackage {
     pub share: RsaSecretShare,
 }
 
-// dealer cobines/aggregates the signatures
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum SigningError {
+    #[error("General signing error")]
+    SigningError,
+    #[error("Message cannot be signed")]
+    MessageCannotBeSigned,
+}
+
+impl SecretPackage {
+    // TODO save v, vi to the SecretPackage to make this more ergonomic?
+    pub fn sign(
+        &self,
+        message: String,
+        max_signers: u16,
+        v: BigInt,
+        vi: &RsaVerificationKey,
+        padding_scheme: PaddingScheme,
+    ) -> Result<PartialMessageSignature, SigningError> {
+        // NOTE: is this how to handle errors in Rust?
+        // let message = match String::from_utf8(message) {
+        //     Ok(msg) => msg,
+        //     Err(_) => return Err(SigningError::MessageCannotBeSigned),
+        // };
+        let delta = factorial(max_signers as usize);
+        let partial_signature = sign_with_share(message, delta, &self.share, v, vi, padding_scheme);
+        Ok(partial_signature)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPrivateKey {
@@ -1275,8 +1302,36 @@ mod tests {
             panic!("first public package is missing")
         };
         assert!(public_pkgs.iter().all(|pkg| pkg == first));
-        // for let Some(pkg) in public_pkgs {
-        //     assert_eq!(first, pkg);
-        // }
+    }
+
+    #[test]
+    fn that_threshold_number_of_signers_generates_valid_signature() {
+        let max_signers = 3;
+        let min_signers = 2;
+        let key_bit_length = 512;
+
+        let Ok((secret_pkgs, public_pkgs)) =
+            generate_with_dealer(max_signers, min_signers, key_bit_length)
+        else {
+            panic!("dealer generation has failed")
+        };
+        let Some(first) = public_pkgs.first() else {
+            panic!("first public package is missing")
+        };
+        let v = &first.v;
+        let vkey = &first.verification_keys;
+        let padding_scheme = PaddingScheme::PKCS1v15;
+        let msg = String::from("hello");
+
+        let pms = secret_pkgs.iter().enumerate().map(|(i, share)| {
+            share.sign(
+                msg.clone(),
+                max_signers,
+                v.clone(),
+                &vkey[i],
+                padding_scheme,
+            )
+        });
+        unimplemented!();
     }
 }

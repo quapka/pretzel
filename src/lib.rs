@@ -52,19 +52,52 @@ use std::str::FromStr;
 // return vec of PrivateShares and vec of VerificationKey
 // SecretPackage and PublicPackage
 
+/// Credits to: https://frost.zfnd.org/index.html for the API design
+pub fn generate_with_dealer(
+    max_signers: u16,
+    min_signers: u16,
+    // TODO add identifiers and rng parameters?
+    key_bit_length: usize,
+) -> Result<(Vec<SecretPackage>, Vec<PublicPackage>), KeyGenError> {
+    let private_key = key_gen(key_bit_length, max_signers as usize, min_signers as usize)?;
+    let shares = generate_secret_shares(&private_key, max_signers as usize, min_signers as usize);
+    // pub fn generate_verification(
+    let secret_pkgs = shares
+        .iter()
+        .enumerate()
+        .map(|(i, share)| SecretPackage {
+            uid: i,
+            gid: None,
+            share: share.clone(),
+        })
+        .collect();
+
+    let public_key = RsaPublicKey::from(&private_key);
+    let (v, vkeys) = generate_verification(&RSAThresholdPublicKey::from(&private_key), shares);
+    let public_pkg = PublicPackage {
+        v: v,
+        verification_keys: vkeys,
+        public_key: public_key,
+        group_size: max_signers as usize,
+    };
+
+    Ok((secret_pkgs, vec![public_pkg; max_signers as usize]))
+}
+
 // for signing send MessageSignRequest
 // return PartialSignature
 //
 //
 // PublicPackage: HashMap of PartialSignature VerificationKeys, VerificationKey
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PublicPackage {
-    v: BigInt,
-    verification_keys: Vec<RsaVerificationKey>,
-    public_key: RsaPublicKey,
+    pub v: BigInt,
+    pub verification_keys: Vec<RsaVerificationKey>,
+    pub public_key: RsaPublicKey,
+    pub group_size: usize,
 }
 // TODO add unique IDs and also keep the unique ideas around
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SecretPackage {
     // TODO use bigger IDs? globally unique ids?
     pub uid: usize,
@@ -106,8 +139,11 @@ pub struct GroupParams {}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RsaSecretShare {
     // TODO the id is both on SecretPackage, RsaSecretShare
-    id: usize,
-    share: BigInt,
+    pub id: usize,
+    pub n: BigUint,
+    pub e: BigUint,
+    pub key_bytes_size: usize,
+    pub share: BigInt,
     // m: BigInt,
 }
 
@@ -1215,5 +1251,32 @@ mod tests {
             pkcs1v15_sign_unpad(&prefix, &hashed, &padded, k).unwrap(),
             ()
         );
+    }
+
+    #[test]
+    fn test_key_conversions() {
+        let l = 2;
+        let k = 2;
+        let sk = load_key().unwrap();
+        RsaPublicKey::from(sk);
+    }
+
+    #[test]
+    fn that_dealer_generates_identical_public_pkgs_to_each_signer() {
+        let max_signers = 3;
+        let min_signers = 3;
+        let key_bit_length = 512;
+
+        let Ok((_, public_pkgs)) = generate_with_dealer(max_signers, min_signers, key_bit_length)
+        else {
+            panic!("dealer generation has failed")
+        };
+        let Some(first) = public_pkgs.first() else {
+            panic!("first public package is missing")
+        };
+        assert!(public_pkgs.iter().all(|pkg| pkg == first));
+        // for let Some(pkg) in public_pkgs {
+        //     assert_eq!(first, pkg);
+        // }
     }
 }

@@ -149,13 +149,19 @@ pub enum PolynomialError {
     NoCoefficients,
 }
 
-impl RSAThresholdPrivateKey {
-    pub fn get_public(&self) -> RSAThresholdPublicKey {
+impl From<&RSAThresholdPrivateKey> for RSAThresholdPublicKey {
+    fn from(private_key: &RSAThresholdPrivateKey) -> Self {
         RSAThresholdPublicKey {
-            n: self.n.clone(),
-            e: self.e.clone(),
-            bytes_size: self.bytes_size,
+            n: private_key.n.clone(),
+            e: private_key.e.clone(),
+            bytes_size: private_key.bytes_size,
         }
+    }
+}
+
+impl From<RSAThresholdPrivateKey> for RSAThresholdPublicKey {
+    fn from(private_key: RSAThresholdPrivateKey) -> Self {
+        (&private_key).into()
     }
 }
 
@@ -771,7 +777,6 @@ mod tests {
         // let t = 1;
         let bit_length = 32;
         let _sk = key_gen(bit_length, l, k); //, t);
-                                             // eprintln!("{:?}", sk.get_public());
     }
 
     #[test]
@@ -783,7 +788,7 @@ mod tests {
         let sk = key_gen(bit_length, l, k).unwrap();
         let shares = generate_secret_shares(&sk, l, k);
         eprintln!("shares: {:?}", shares);
-        let (v, vks) = generate_verification(&sk.get_public(), shares);
+        let (v, vks) = generate_verification(&RSAThresholdPublicKey::from(&sk), shares);
     }
 
     #[test]
@@ -889,7 +894,7 @@ mod tests {
         // let t = 1;
         let bit_length = 32;
         let sk = key_gen(bit_length, l, k).unwrap();
-        let pubkey = sk.get_public();
+        let pubkey = RSAThresholdPublicKey::from(&sk);
         let shares = generate_secret_shares(&sk, l, k);
         // FIXME test
     }
@@ -915,7 +920,7 @@ mod tests {
         // dealer's part
         let sk = key_gen(bit_length, l, k).unwrap();
         // let sk = load_key().unwrap();
-        let pubkey = sk.get_public();
+        let pubkey = RSAThresholdPublicKey::from(&sk);
         let shares = generate_secret_shares(&sk, l, k);
         let (v, verification_keys) = generate_verification(&pubkey, shares.clone());
 
@@ -1125,7 +1130,7 @@ mod tests {
         let sk = key_gen(bit_length, l, k).unwrap();
         eprintln!("bytes_size: {}", sk.bytes_size);
         // let sk = load_key().unwrap();
-        let pubkey = sk.get_public();
+        let pubkey = RSAThresholdPublicKey::from(&sk);
         let shares = generate_secret_shares(&sk, l, k);
         let (v, verification_keys) = generate_verification(&pubkey, shares.clone());
         let delta = factorial(l);

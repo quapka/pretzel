@@ -84,10 +84,6 @@ pub fn generate_with_dealer(
     Ok((secret_pkgs, vec![public_pkg; max_signers as usize]))
 }
 
-// for signing send MessageSignRequest
-// return PartialSignature
-//
-//
 // PublicPackage: HashMap of PartialSignature VerificationKeys, VerificationKey
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PublicPackage {
@@ -181,12 +177,13 @@ pub struct RsaVerificationKey {
     key: BigInt,
 }
 
+// Should PartialMessageSignature be split to the share and the verification proof?
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MsgSignatureShare {
-    id: usize,
-    xi: BigInt,
-    z: BigInt,
-    c: BigInt,
+pub struct PartialMessageSignature {
+    pub id: usize,
+    pub xi: BigInt,
+    pub z: BigInt,
+    pub c: BigInt,
     // key: RSAThresholdPublicKey,
 }
 
@@ -470,7 +467,7 @@ fn sign_with_share(
     let c = BigInt::from_bytes_be(Sign::Plus, &Sha256::digest(commit));
     let z = (share.share.clone().mul(c.clone())).add(r.clone());
 
-    MsgSignatureShare {
+    PartialMessageSignature {
         id: share.id,
         xi: xi,
         z: z,

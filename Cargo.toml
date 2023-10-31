@@ -32,3 +32,4 @@ pkcs1= "*"
 
 [dev-dependencies]
 rand_chacha = "0.3"
+itertools = "0.11.0"

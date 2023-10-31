@@ -480,13 +480,19 @@ fn lambda(delta: usize, i: usize, j: usize, l: usize, subset: Vec<usize>) -> Big
     let subset: Vec<usize> = subset.into_iter().filter(|&s| s != j).collect();
     // eprintln!("subset: {:?}, j: {}", subset, j);
 
-    let numerator: i64 = subset.iter().map(|&j_p| i as i64 - j_p as i64).product();
-    let denominator: i64 = subset.iter().map(|&j_p| j as i64 - j_p as i64).product();
-    // eprintln!("numerator: {:?}", numerator);
-    // eprintln!("denominator: {:?}", denominator);
+    let numerator: i64 = subset
+        .iter()
+        .map(|&j_prime| i as i64 - j_prime as i64)
+        .product();
+    let denominator: i64 = subset
+        .iter()
+        .map(|&j_prime| j as i64 - j_prime as i64)
+        .product();
+    // eprintln!("numerator / denominator: {:?}", numerator / denominator);
 
     // TODO use mul and div
-    let value = BigInt::from(delta as i64 * (numerator / denominator));
+    //
+    let value = BigInt::from((delta as i64 * numerator) / denominator);
     // eprintln!("lambda: {}", value);
     value
 }

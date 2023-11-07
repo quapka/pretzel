@@ -17,7 +17,7 @@ errors = "*"
 rand = "0.8.5"
 crypto-bigint = { version = "0.5.2", features = ["rand", "rand_core", "zeroize"] }
 crypto-primes = "0.3.0"
-rsa = { git = "https://github.com/quapka/RSA.git", features = ["hazmat", "serde"] }
+rsa = { git = "https://github.com/quapka/RSA.git", branch = "more-hazmat", features = ["hazmat", "serde"] }
 rand_chacha = "0.3"
 thiserror="*"
 log ="*"

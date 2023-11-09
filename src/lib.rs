@@ -116,7 +116,7 @@ impl SecretPackage {
     // TODO save v, vi to the SecretPackage to make this more ergonomic?
     pub fn sign(
         &self,
-        message: String,
+        message: &[u8],
         max_signers: u16,
         v: BigInt,
         vi: &RsaVerificationKey,
@@ -333,7 +333,7 @@ pub enum PaddingScheme {
 }
 
 fn digest_msg<R: CryptoRngCore>(
-    msg: String,
+    msg: &[u8],
     scheme: PaddingScheme,
     _rng: &mut R,
     // key: &RsaPublicKey,
@@ -427,7 +427,7 @@ pub fn generate_verification(
 
 /// _i = x^{2 \delta s_i} \in Q_n
 pub fn sign_with_share(
-    msg: String,
+    msg: &[u8],
     delta: usize,
     share: &RsaSecretShare,
     // key: &RsaPublicKey,
@@ -567,7 +567,7 @@ fn generate_p_and_q(bit_length: usize) -> Result<(BigInt, BigInt), KeyGenError> 
 // FIXME go through expects and fix them!
 // TODO pass the msg digest
 pub fn verify_proof(
-    msg: String,
+    msg: &[u8],
     v: BigInt,
     delta: usize,
     // xi: BigInt,
@@ -646,7 +646,7 @@ fn load_key() -> std::io::Result<RSAThresholdPrivateKey> {
 // Who can combine the shares? Should this be a function of SecretPackage?
 /// Combine signature shares.
 pub fn combine_shares(
-    msg: String,
+    msg: &[u8],
     // TODO do not pass both delta and l
     delta: usize,
     sign_shares: Vec<PartialMessageSignature>,
@@ -776,7 +776,7 @@ pub fn combine_shares(
 }
 
 fn verify_signature(
-    msg: String,
+    msg: &[u8],
     signature: &BigInt,
     scheme: PaddingScheme,
     key: &RSAThresholdPublicKey,
@@ -817,7 +817,8 @@ fn verify_signature(
     // }
 }
 
-fn regular_signature(msg: String, key: &RSAThresholdPrivateKey) -> BigInt {
+// FIXME this should be only a helper in tests, move it
+fn regular_signature(msg: &[u8], key: &RSAThresholdPrivateKey) -> BigInt {
     let msg_digest = Sha256::digest(msg);
     let modulus = &key.p.clone().mul(key.q.clone());
     let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&modulus);
@@ -1044,7 +1045,7 @@ mod tests {
         let k = 2;
         // let t = 1;
         let bit_length = 512;
-        let msg = String::from("ahello");
+        let msg = "ahello".as_bytes();
         let pad = PaddingScheme::NONE;
         // dealer's part
         let sk = key_gen(bit_length, l, k).unwrap();
@@ -1173,7 +1174,7 @@ mod tests {
     //     let k = 2;
     //     let t = 1;
     //     let bit_length = 2048;
-    //     let msg = String::from("hello");
+    //     let msg = String::from("hello").into_bytes().as_slice();
     //     // dealer's part
     //     let sk = key_gen(bit_length, l, k).unwrap();
     //     let _ = save_key(&sk);
@@ -1268,14 +1269,14 @@ mod tests {
         // eprintln!("delta: {}", delta);
 
         // TODO randomize the message
-        let msg = String::from("hello why are you here ");
+        let msg = "hello, why are you here".as_bytes();
         let mut sign_shares = vec![];
         for (share, vkey) in zip(
             shares.iter().take(k),
             verification_keys.clone().iter().take(k),
         ) {
             let signed_share = sign_with_share(
-                msg.clone(),
+                msg,
                 delta,
                 &share,
                 // &pubkey,
@@ -1285,7 +1286,7 @@ mod tests {
             );
             sign_shares.push(signed_share.clone());
             let verified = verify_proof(
-                msg.clone(),
+                msg,
                 v.clone(),
                 delta,
                 &vkey,
@@ -1297,7 +1298,7 @@ mod tests {
             assert!(verified);
         }
 
-        let signature = combine_shares(msg.clone(), delta, sign_shares, &shares[0], l, pad.clone());
+        let signature = combine_shares(msg, delta, sign_shares, &shares[0], l, pad.clone());
         // let _reg_sig = regular_signature(msg.clone(), &sk);
 
         // FIXME apparently sometimes our signature is differente from the regular signature.
@@ -1390,7 +1391,8 @@ mod tests {
         let v = &first.v;
         let vkey = &first.verification_keys;
         let padding_scheme = PaddingScheme::PKCS1v15;
-        let msg = String::from("hello");
+        // let msg = String::from("hello").into_bytes();
+        let msg = b"hello".as_slice();
 
         let pms: Vec<PartialMessageSignature> = secret_pkgs
             .iter()

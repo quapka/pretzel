@@ -341,6 +341,7 @@ fn digest_msg<R: CryptoRngCore>(
     n: &BigUint,
     key_bytes_size: usize,
 ) -> BigInt {
+    eprintln!("len:{} data:{:?}", msg.len(), msg);
     let msg_digest = Sha256::digest(msg);
     // FIXME is this correct conversion?
     // TODO Add support for various hash functions

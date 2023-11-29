@@ -137,22 +137,22 @@ impl SecretPackage {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPrivateKey {
-    n: BigInt,
-    p: BigInt,
-    q: BigInt,
-    d: BigInt,
-    m: BigInt,
-    e: BigInt,
+    pub n: BigInt,
+    pub p: BigInt,
+    pub q: BigInt,
+    pub d: BigInt,
+    pub m: BigInt,
+    pub e: BigInt,
     // TODO follow RustCrypto/RSA convention of functions instead of fields
     pub bytes_size: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPublicKey {
-    n: BigInt,
-    e: BigInt,
+    pub n: BigInt,
+    pub e: BigInt,
     // TODO follow RustCrypto/RSA convention of functions instead of fields
-    bytes_size: usize,
+    pub bytes_size: usize,
 }
 
 pub struct Group {
@@ -372,7 +372,7 @@ fn digest_msg(
     }
 }
 
-fn evaluate_polynomial_mod(
+pub fn evaluate_polynomial_mod(
     value: BigInt,
     coeffs: &Vec<BigInt>,
     modulus: &BigInt,

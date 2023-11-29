@@ -32,6 +32,7 @@ use rsa::{
     Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey,
 };
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Result as SerdeResult, Value};
 use std::any::type_name;
@@ -64,7 +65,7 @@ pub fn generate_with_dealer(
     let shares = generate_secret_shares(&private_key, max_signers as usize, min_signers as usize);
     // pub fn generate_verification(
     let secret_pkgs = shares
-        .iter()
+        .par_iter()
         .enumerate()
         .map(|(i, share)| SecretPackage {
             uid: i,
@@ -425,7 +426,7 @@ pub fn generate_verification(
     let v = rng.gen_bigint_range(&two, &key.n);
     assert_eq!(v.gcd(&key.n).cmp(&BigInt::one()), Ordering::Equal);
     let verification_keys = shares
-        .iter()
+        .par_iter()
         .map(|s| RsaVerificationKey {
             id: s.id,
             key: v.modpow(&s.share, &key.n),
@@ -503,7 +504,7 @@ pub fn sign_with_share(
 
 fn lambda(delta: usize, i: usize, j: usize, l: usize, subset: Vec<usize>) -> BigInt {
     // FIXME usize might overflow? what about using BigInt
-    let subset: Vec<usize> = subset.into_iter().filter(|&s| s != j).collect();
+    let subset: Vec<usize> = subset.into_par_iter().filter(|&s| s != j).collect();
     // eprintln!("filtered subset: {:?}, j: {}", subset, j);
 
     let numerator: i64 = subset

@@ -142,7 +142,7 @@ pub struct RSAThresholdPrivateKey {
     m: BigInt,
     e: BigInt,
     // TODO follow RustCrypto/RSA convention of functions instead of fields
-    bytes_size: usize,
+    pub bytes_size: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -632,15 +632,17 @@ pub fn verify_proof(
         == Ordering::Equal
 }
 
-fn save_key(key: &RSAThresholdPrivateKey) -> std::io::Result<()> {
+// FIXME: allow specifying the path
+pub fn save_key(key: &RSAThresholdPrivateKey) -> std::io::Result<()> {
     let mut keyfile = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     keyfile.push("resources/test/private_key.json");
+    eprintln!("keyfile path: {}", keyfile.display());
     let mut handle = File::create(keyfile)?;
     handle.write_all(serde_json::to_string(key).unwrap().as_bytes())?;
     Ok(())
 }
 
-fn load_key() -> std::io::Result<RSAThresholdPrivateKey> {
+pub fn load_key() -> std::io::Result<RSAThresholdPrivateKey> {
     let mut keyfile = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     keyfile.push("resources/test/private_key.json");
     let mut handle = File::open(keyfile)?;

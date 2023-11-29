@@ -128,7 +128,8 @@ impl SecretPackage {
         //     Err(_) => return Err(SigningError::MessageCannotBeSigned),
         // };
         let delta = factorial(max_signers as usize);
-        let partial_signature = sign_with_share(message, delta, &self.share, &v, vi, padding_scheme);
+        let partial_signature =
+            sign_with_share(message, delta, &self.share, &v, vi, padding_scheme);
         Ok(partial_signature)
     }
 }
@@ -673,7 +674,7 @@ pub fn combine_shares(
         &key_share.n.to_biguint().expect(""),
         key_share.key_bytes_size,
     );
-    eprintln!("combine shares x len: \n{:?}", x.to_bytes_be().1.len());
+    // eprintln!("combine shares x len: \n{:?}", x.to_bytes_be().1.len());
     // eprintln!("pz_x = {}", x);
 
     let mut w = BigInt::one();
@@ -707,7 +708,7 @@ pub fn combine_shares(
     }
     w = w.mod_floor(&key_share.n.to_bigint().expect(""));
     let e_prime = BigInt::from(4u8).mul(delta.pow(2));
-    let (g, Some(a), Some(b)) = extended_gcd(
+    let (_g, Some(a), Some(b)) = extended_gcd(
         std::borrow::Cow::Borrowed(&e_prime.to_biguint().expect("")),
         std::borrow::Cow::Borrowed(&key_share.e.to_biguint().expect("")),
         true,
@@ -771,7 +772,7 @@ pub fn combine_shares(
         Ordering::Equal => BigInt::one(),
         Ordering::Greater => x.modpow(&b, &key_share.n.to_bigint().expect("")),
     };
-    eprintln!("shares combined");
+    // eprintln!("shares combined");
 
     BigInt::from_bytes_be(
         Sign::Plus,
@@ -1074,7 +1075,7 @@ mod tests {
             delta,
             &shares[0],
             // &pubkey,
-            &v,//.clone(),
+            &v, //.clone(),
             &verification_keys[0],
             pad.clone(),
         );
@@ -1102,7 +1103,7 @@ mod tests {
             delta,
             &shares[1],
             // &pubkey,
-            &v,//.clone(),
+            &v, //.clone(),
             &verification_keys[1],
             pad,
         );
@@ -1146,12 +1147,7 @@ mod tests {
         eprintln!("q: {}", sk.q.to_string());
         eprintln!("m: {}", sk.m.to_string());
         eprintln!("v: {}", v.to_string());
-        assert!(verify_signature(
-            msg,
-            &signature.clone(),
-            pad,
-            &pubkey
-        ));
+        assert!(verify_signature(msg, &signature.clone(), pad, &pubkey));
     }
 
     #[test]
@@ -1360,10 +1356,7 @@ mod tests {
         // let prefix = &[]; //pkcs1v15_generate_prefix::<Sha256>();
         let hashed = Sha256::digest(b"hello");
         let mut padded = pkcs1v15_sign_pad(&[], &hashed, k).unwrap();
-        assert_eq!(
-            pkcs1v15_sign_unpad(&[], &hashed, &padded, k).unwrap(),
-            ()
-        );
+        assert_eq!(pkcs1v15_sign_unpad(&[], &hashed, &padded, k).unwrap(), ());
     }
 
     #[test]
@@ -1428,7 +1421,7 @@ mod tests {
 
         let delta = factorial(max_signers.into());
         // Check that all partial signatures verify
-        for index in 0..3 {
+        (0..3).into_par_iter().for_each(|index| {
             assert!(
                 verify_proof(
                     msg,
@@ -1442,7 +1435,7 @@ mod tests {
                 ),
                 "proof for {index} did not verify"
             );
-        }
+        });
 
         let signature_3_of_3 = combine_shares(
             msg.clone(),
@@ -1455,6 +1448,7 @@ mod tests {
 
         // The ideas is that every pair of signers should generate the same signature for a
         // deterministic padding scheme
+        // TODO paralelize
         for pair in (0..max_signers).into_iter().combinations(2) {
             let first = pair[0] as usize;
             let second = pair[1] as usize;

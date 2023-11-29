@@ -525,12 +525,32 @@ fn lambda(delta: usize, i: usize, j: usize, l: usize, subset: Vec<usize>) -> Big
 }
 
 // TODO inline?
+#[inline]
 pub fn factorial(value: usize) -> usize {
-    let mut acc = 1;
-    for i in 1..=value {
-        acc *= i
+    match value {
+        0 | 1 => 1,
+        2 => 2,
+        3 => 6,
+        4 => 24,
+        5 => 120,
+        6 => 720,
+        7 => 5040,
+        8 => 40320,
+        9 => 362880,
+        10 => 3628800,
+        11 => 39916800,
+        12 => 479001600,
+        13 => 6227020800,
+        14 => 87178291200,
+        // TODO use factorial::Factorial package for the calculation
+        _ => {
+            let mut acc = 1;
+            for i in 1..=value {
+                acc *= i
+            }
+            acc
+        }
     }
-    acc
 }
 
 // Based on this API the `bit_length` should not be divided, but instead

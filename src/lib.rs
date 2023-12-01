@@ -47,7 +47,6 @@ use std::str::FromStr;
 // FIXME Check that the geneated values/shares etc. are not ones or zeroes for example?
 // TODO: add PSS padding --- needs message passing
 // TODO: fix the k-out-of-l signatures that differ from the regular one when k < l
-// TODO: prefer BigUint over BigInt
 
 // Deal function to generate from
 // inputs k-out-of-n
@@ -89,7 +88,7 @@ pub fn generate_with_dealer(
 // PublicPackage: HashMap of PartialSignature VerificationKeys, VerificationKey
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PublicPackage {
-    pub v: BigInt,
+    pub v: BigUint,
     pub verification_keys: Vec<RsaVerificationKey>,
     pub public_key: RsaPublicKey,
     pub group_size: usize,
@@ -119,7 +118,7 @@ impl SecretPackage {
         &self,
         message: &[u8],
         max_signers: u16,
-        v: BigInt,
+        v: BigUint,
         vi: &RsaVerificationKey,
         padding_scheme: PaddingScheme,
     ) -> Result<PartialMessageSignature, SigningError> {
@@ -137,20 +136,20 @@ impl SecretPackage {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPrivateKey {
-    pub n: BigInt,
-    pub p: BigInt,
-    pub q: BigInt,
-    pub d: BigInt,
-    pub m: BigInt,
-    pub e: BigInt,
+    pub n: BigUint,
+    pub p: BigUint,
+    pub q: BigUint,
+    pub d: BigUint,
+    pub m: BigUint,
+    pub e: BigUint,
     // TODO follow RustCrypto/RSA convention of functions instead of fields
     pub bytes_size: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RSAThresholdPublicKey {
-    pub n: BigInt,
-    pub e: BigInt,
+    pub n: BigUint,
+    pub e: BigUint,
     // TODO follow RustCrypto/RSA convention of functions instead of fields
     pub bytes_size: usize,
 }
@@ -170,23 +169,23 @@ pub struct RsaSecretShare {
     pub n: BigUint,
     pub e: BigUint,
     pub key_bytes_size: usize,
-    pub share: BigInt,
+    pub share: BigUint,
 }
 
 // FIXME introduce lifetimes?
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RsaVerificationKey {
     id: usize,
-    key: BigInt,
+    key: BigUint,
 }
 
 // Should PartialMessageSignature be split to the share and the verification proof?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartialMessageSignature {
     pub id: usize,
-    pub xi: BigInt,
-    pub z: BigInt,
-    pub c: BigInt,
+    pub xi: BigUint,
+    pub z: BigUint,
+    pub c: BigUint,
     // key: RSAThresholdPublicKey,
 }
 
@@ -240,18 +239,13 @@ impl From<RSAThresholdPrivateKey> for RsaPrivateKey {
 
 impl From<&RSAThresholdPrivateKey> for RsaPrivateKey {
     fn from(private_key: &RSAThresholdPrivateKey) -> Self {
-        let n = (private_key.p.clone() * private_key.q.clone())
-            .to_biguint()
-            .expect("");
+        let n = private_key.p.clone() * private_key.q.clone();
 
         RsaPrivateKey::from_components(
             n,
-            private_key.e.to_biguint().expect(""),
-            private_key.d.to_biguint().expect(""),
-            vec![
-                private_key.p.clone().to_biguint().expect(""),
-                private_key.q.clone().to_biguint().expect(""),
-            ],
+            private_key.e.clone(),
+            private_key.d.clone(),
+            vec![private_key.p.clone(), private_key.q.clone()],
         )
         .unwrap()
     }
@@ -286,33 +280,33 @@ pub fn key_gen(
         Ok((p, q)) => (p, q),
         Err(e) => return Err(e),
     };
-    let e: BigInt = BigInt::from(0x10001); // 65537
+    let e: BigUint = BigUint::from(0x10001 as u32); // 65537
 
     // FIXME: compare against e directly
-    if BigInt::from(l) > e {
+    if BigUint::from(l) > e {
         return Err(KeyGenError::GroupTooBig);
     };
 
     let n = p.clone().mul(&q);
     // FIXME code without unwraps
-    let p_prime = &p.checked_sub(&BigInt::one()).unwrap().shr(1);
-    let q_prime = &q.checked_sub(&BigInt::one()).unwrap().shr(1);
+    let p_prime = &p.checked_sub(&BigUint::one()).unwrap().shr(1);
+    let q_prime = &q.checked_sub(&BigUint::one()).unwrap().shr(1);
 
     let m = p_prime.mul(q_prime);
     let dd = match e.clone().mod_inverse(&m) {
-        Some(value) => value,
+        Some(value) => value.to_biguint().expect(""),
         None => return Err(KeyGenError::NoInverse),
     };
-    assert!(dd.cmp(&BigInt::zero()) == Ordering::Greater);
+    assert!(dd.cmp(&BigUint::zero()) == Ordering::Greater);
 
     // TODO d is expected to be an Integer, not exactly modulo, it just needs to
     // satisfy the equation de = 1 mod m
-    // let d: BigInt = match dd.to_biguint() {
+    // let d: BigUint = match dd.to_biguint() {
     //     Some(value) => value,
     //     None => return Err(KeyGenError::NoInverse),
     // };
     assert_eq!(
-        dd.clone().mul(e.clone()).mod_floor(&m).cmp(&BigInt::one()),
+        dd.clone().mul(e.clone()).mod_floor(&m).cmp(&BigUint::one()),
         Ordering::Equal
     );
 
@@ -342,30 +336,28 @@ fn digest_msg(
     // share: &RsaSecretShare,
     n: &BigUint,
     key_bytes_size: usize,
-) -> BigInt {
+) -> BigUint {
     // eprintln!("no prefix len:{} data:{:?}", msg.len(), msg);
-    // BigInt::from_bytes_be(
-    //     Sign::Plus,
+    // BigUint::from_bytes_be(
     //     msg,
     // )
     // let msg_digest = Sha256::digest(msg);
     // FIXME is this correct conversion?
     // TODO Add support for various hash functions
     // let hashed =
-    //     BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&n.to_bigint().expect(""));
+    //     BigUint::from_bytes_be(&msg_digest).mod_floor(&n.to_bigint().expect(""));
     // TODO there are four variants for PSS
     // let inner = pkcs1v15_sign_pad(&[], &msg, key_bytes_size).unwrap();
-    // assert_eq!((BigInt::from_bytes_be(Sign::Plus, &inner).to_bytes_be().1), inner);
+    // assert_eq!((BigUint::from_bytes_be( &inner).to_bytes_be()), inner);
     match scheme {
         PaddingScheme::NONE => todo!(), //hashed,
         PaddingScheme::_PSS => unimplemented!(),
         PaddingScheme::PKCS1v15 => {
             // let prefix = pkcs1v15_generate_prefix::<Sha256>();
-            // eprintln!("hashed: {:?}", hashed.to_bytes_be().1);
+            // eprintln!("hashed: {:?}", hashed.to_bytes_be());
             // eprintln!("key_bytes: {}", key_bytes_size);
-            BigInt::from_bytes_be(
-                Sign::Plus,
-                // &pkcs1v15_sign_pad(&[], &hashed.to_bytes_be().1, key_bytes_size).unwrap(),
+            BigUint::from_bytes_be(
+                // &pkcs1v15_sign_pad(&[], &hashed.to_bytes_be(), key_bytes_size).unwrap(),
                 &pkcs1v15_sign_pad(&[], &msg, key_bytes_size).unwrap(),
             )
         }
@@ -373,11 +365,11 @@ fn digest_msg(
 }
 
 pub fn evaluate_polynomial_mod(
-    value: BigInt,
-    coeffs: &Vec<BigInt>,
-    modulus: &BigInt,
-) -> Result<BigInt, PolynomialError> {
-    let mut prev: BigInt = match coeffs.last() {
+    value: BigUint,
+    coeffs: &Vec<BigUint>,
+    modulus: &BigUint,
+) -> Result<BigUint, PolynomialError> {
+    let mut prev: BigUint = match coeffs.last() {
         Some(last) => last.clone(),
         None => return Err(PolynomialError::NoCoefficients),
     };
@@ -398,8 +390,8 @@ pub fn generate_secret_shares(
 ) -> Vec<RsaSecretShare> {
     // generate random coefficients
     let mut rng = ChaCha20Rng::from_entropy();
-    let mut a_coeffs: Vec<BigInt> = (0..=(k - 1))
-        .map(|_| rng.gen_bigint_range(&BigInt::zero(), &key.m))
+    let mut a_coeffs: Vec<BigUint> = (0..=(k - 1))
+        .map(|_| rng.gen_biguint_range(&BigUint::zero(), &key.m))
         .collect();
     // fix a_0 to the private exponent
     a_coeffs[0] = key.d.clone();
@@ -407,8 +399,8 @@ pub fn generate_secret_shares(
     let shares: Vec<RsaSecretShare> = (1..=l)
         .map(|i| RsaSecretShare {
             id: i,
-            n: key.n.to_biguint().expect(""),
-            e: key.e.to_biguint().expect(""),
+            n: key.n.clone(),
+            e: key.e.clone(),
             key_bytes_size: key.bytes_size,
             share: evaluate_polynomial_mod(i.into(), &a_coeffs, &key.m).unwrap(),
         })
@@ -419,12 +411,12 @@ pub fn generate_secret_shares(
 pub fn generate_verification(
     key: &RSAThresholdPublicKey,
     shares: Vec<RsaSecretShare>,
-) -> (BigInt, Vec<RsaVerificationKey>) {
+) -> (BigUint, Vec<RsaVerificationKey>) {
     let mut rng = ChaCha20Rng::from_entropy();
-    let two = BigInt::from(2u8);
+    let two = BigUint::from(2u8);
     // FIXME: v is supposed to be from the subgroup of squares, is it?
-    let v = rng.gen_bigint_range(&two, &key.n);
-    assert_eq!(v.gcd(&key.n).cmp(&BigInt::one()), Ordering::Equal);
+    let v = rng.gen_biguint_range(&two, &key.n);
+    assert_eq!(v.gcd(&key.n).cmp(&BigUint::one()), Ordering::Equal);
     let verification_keys = shares
         .par_iter()
         .map(|s| RsaVerificationKey {
@@ -441,7 +433,7 @@ pub fn sign_with_share(
     delta: usize,
     share: &RsaSecretShare,
     // key: &RsaPublicKey,
-    v: &BigInt,
+    v: &BigUint,
     vi: &RsaVerificationKey,
     scheme: PaddingScheme,
 ) -> PartialMessageSignature {
@@ -454,44 +446,44 @@ pub fn sign_with_share(
         share.key_bytes_size,
     );
     // FIXME is this correct conversion?
-    // let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+    // let x = BigUint::from_bytes_be( &msg_digest).mod_floor(&key.n);
     // eprintln!("x = {:?}", x);
-    // let xi = BigInt::from_bytes_be(msg_digest);
-    let mut exponent = BigInt::from(2u8);
-    exponent.mul_assign(BigInt::from(delta));
+    // let xi = BigUint::from_bytes_be(msg_digest);
+    let mut exponent = BigUint::from(2u8);
+    exponent.mul_assign(BigUint::from(delta));
     exponent.mul_assign(share.share.clone());
     // calculate the signature share
-    let xi = x.modpow(&exponent, &share.n.to_bigint().expect(""));
+    let xi = x.modpow(&exponent, &share.n);
     // x_tilde
     let x_tilde = x.pow(4 * delta);
-    let xi_squared: BigInt = xi.modpow(&BigInt::from(2u8), &share.n.to_bigint().expect(""));
+    let xi_squared: BigUint = xi.modpow(&BigUint::from(2u8), &share.n);
 
     // calculate the proof of correctness
     let n_bits = share.n.bits();
     let hash_length = 256;
-    let two = BigInt::from(2u8);
+    let two = BigUint::from(2u8);
 
     let bound = two
         .pow(n_bits + 2 * hash_length)
         .checked_sub(&BigInt::one())
         .expect("");
     let mut rng = ChaCha20Rng::from_entropy();
-    let r = rng.gen_bigint_range(&BigInt::zero(), &bound);
+    let r = rng.gen_biguint_range(&BigUint::zero(), &bound);
     // eprintln!("pz_r = {}", r);
     // FIXME the next exponentiation should not be modulo
-    let v_prime = v.modpow(&r, &share.n.to_bigint().expect(""));
-    let x_prime = x_tilde.modpow(&r, &share.n.to_bigint().expect(""));
+    let v_prime = v.modpow(&r, &share.n);
+    let x_prime = x_tilde.modpow(&r, &share.n);
     // c =  hash(v, x_tilde, vi, xi^2, v^r, x^r)
     // FIXME omitting the sign could be of an issue
-    let mut commit = v.to_bytes_be().1;
-    commit.extend(x_tilde.to_bytes_be().1);
+    let mut commit = v.to_bytes_be();
+    commit.extend(x_tilde.to_bytes_be());
     // FIXME don't just use the key but provide some way of hashing?
-    commit.extend(vi.key.to_bytes_be().1);
-    commit.extend(xi_squared.to_bytes_be().1);
-    commit.extend(v_prime.to_bytes_be().1);
-    commit.extend(x_prime.to_bytes_be().1);
+    commit.extend(vi.key.to_bytes_be());
+    commit.extend(xi_squared.to_bytes_be());
+    commit.extend(v_prime.to_bytes_be());
+    commit.extend(x_prime.to_bytes_be());
 
-    let c = BigInt::from_bytes_be(Sign::Plus, &Sha256::digest(commit));
+    let c = BigUint::from_bytes_be(&Sha256::digest(commit));
     let z = (share.share.clone().mul(c.clone())).add(r.clone());
 
     PartialMessageSignature {
@@ -503,7 +495,7 @@ pub fn sign_with_share(
 }
 
 fn lambda(delta: usize, i: usize, j: usize, l: usize, subset: Vec<usize>) -> BigInt {
-    // FIXME usize might overflow? what about using BigInt
+    // FIXME usize might overflow? what about using BigUint
     let subset: Vec<usize> = subset.into_par_iter().filter(|&s| s != j).collect();
     // eprintln!("filtered subset: {:?}, j: {}", subset, j);
 
@@ -555,7 +547,7 @@ pub fn factorial(value: usize) -> usize {
 
 // Based on this API the `bit_length` should not be divided, but instead
 // the division shouldbe handled by the key gen caller
-fn generate_p_and_q(bit_length: usize) -> Result<(BigInt, BigInt), KeyGenError> {
+fn generate_p_and_q(bit_length: usize) -> Result<(BigUint, BigUint), KeyGenError> {
     let min_bit_length = 3;
     let max_bit_length = 16384;
     let half_bit_length = bit_length / 2;
@@ -584,8 +576,8 @@ fn generate_p_and_q(bit_length: usize) -> Result<(BigInt, BigInt), KeyGenError> 
     }
 
     // FIXME: I am a bit unsure about the converting between crypto-bigint and num-bigint
-    let p = BigInt::from_bytes_be(Sign::Plus, &crypto_p.to_be_bytes());
-    let q = BigInt::from_bytes_be(Sign::Plus, &crypto_q.to_be_bytes());
+    let p = BigUint::from_bytes_be(&crypto_p.to_be_bytes());
+    let q = BigUint::from_bytes_be(&crypto_q.to_be_bytes());
 
     if p.bits() != half_bit_length || q.bits() != half_bit_length {
         return Err(KeyGenError::BitLength);
@@ -598,12 +590,12 @@ fn generate_p_and_q(bit_length: usize) -> Result<(BigInt, BigInt), KeyGenError> 
 // TODO pass the msg digest
 pub fn verify_proof(
     msg: &[u8],
-    v: &BigInt,
+    v: &BigUint,
     delta: usize,
-    // xi: BigInt,
+    // xi: BigUint,
     vi: &RsaVerificationKey,
-    // c: BigInt,
-    // z: BigInt,
+    // c: BigUint,
+    // z: BigUint,
     pms: &PartialMessageSignature,
     n: &BigUint,
     key_bytes_size: usize,
@@ -617,41 +609,40 @@ pub fn verify_proof(
         n,
         key_bytes_size,
     );
-    let x_tilde: BigInt = x.pow(4 * delta);
+    let x_tilde: BigUint = x.pow(4 * delta);
 
-    let xi_squared: BigInt = pms.xi.modpow(&BigInt::from(2u8), &n.to_bigint().expect(""));
+    let xi_squared: BigUint = pms.xi.modpow(&BigUint::from(2u8), &n);
 
-    let v2z = v.modpow(&pms.z, &n.to_bigint().expect(""));
+    // let v2z = v.modpow(&pms.z, &n);
     // FIXME refactor param5 and param6 calculations
     // FIXME use checked_mul instead
-    let param5 = v.modpow(&pms.z, &n.to_bigint().expect(""));
+    let param5 = v.modpow(&pms.z, &n);
     let tmp1 = vi
         .key
-        .modpow(&pms.c, &n.to_bigint().expect(""))
-        .mod_inverse(&n.to_bigint().expect(""))
+        .modpow(&pms.c, &n)
+        .mod_inverse(n)
+        .expect("")
+        .to_biguint()
         .expect("");
-    let param5 = (param5 * tmp1).mod_floor(&n.to_bigint().expect(""));
+    let param5 = (param5 * tmp1).mod_floor(&n);
 
-    let param6 = x_tilde.modpow(&pms.z, &n.to_bigint().expect(""));
+    let param6 = x_tilde.modpow(&pms.z, &n);
     let tmp2 = pms
         .xi
-        .modpow(
-            &(pms.c.clone().mul(BigInt::from(2u8))),
-            &n.to_bigint().expect(""),
-        )
-        .mod_inverse(&n.to_bigint().expect(""))
+        .modpow(&(pms.c.clone().mul(BigUint::from(2u8))), &n)
+        .mod_inverse(n)
+        .expect("")
+        .to_biguint()
         .expect("");
-    let param6 = (param6 * tmp2).mod_floor(&n.to_bigint().expect(""));
+    let param6 = (param6 * tmp2).mod_floor(&n);
 
-    let mut commit = v.to_bytes_be().1;
-    commit.extend(x_tilde.to_bytes_be().1);
-    commit.extend(vi.key.to_bytes_be().1);
-    commit.extend(xi_squared.to_bytes_be().1);
-    commit.extend(param5.to_bytes_be().1);
-    commit.extend(param6.to_bytes_be().1);
-    pms.c
-        .cmp(&BigInt::from_bytes_be(Sign::Plus, &Sha256::digest(commit)))
-        == Ordering::Equal
+    let mut commit = v.to_bytes_be();
+    commit.extend(x_tilde.to_bytes_be());
+    commit.extend(vi.key.to_bytes_be());
+    commit.extend(xi_squared.to_bytes_be());
+    commit.extend(param5.to_bytes_be());
+    commit.extend(param6.to_bytes_be());
+    pms.c.cmp(&BigUint::from_bytes_be(&Sha256::digest(commit))) == Ordering::Equal
 }
 
 // FIXME: allow specifying the path
@@ -686,19 +677,19 @@ pub fn combine_shares(
     key_share: &RsaSecretShare,
     l: usize,
     scheme: PaddingScheme,
-) -> BigInt {
+) -> Result<Vec<u8>, SigningError> {
     // FIXME verify the shares prior to combining them
     let x = digest_msg(
         msg,
         scheme,
         // &mut ChaCha20Rng::from_entropy(),
-        &key_share.n.to_biguint().expect(""),
+        &key_share.n,
         key_share.key_bytes_size,
     );
-    // eprintln!("combine shares x len: \n{:?}", x.to_bytes_be().1.len());
+    // eprintln!("combine shares x len: \n{:?}", x.to_bytes_be().len());
     // eprintln!("pz_x = {}", x);
 
-    let mut w = BigInt::one();
+    let mut w = BigUint::one();
     // FIXME the set is supposed to be dynamic
     let subset = sign_shares.iter().map(|s| s.id).collect::<Vec<usize>>();
     // eprintln!(
@@ -717,21 +708,23 @@ pub fn combine_shares(
         w.mul_assign(match exponent.cmp(&BigInt::zero()) {
             Ordering::Less => share
                 .xi
-                .modpow(&exponent.neg(), &key_share.n.to_bigint().expect(""))
-                .mod_inverse(&key_share.n)
+                .modpow(&exponent.neg().to_biguint().expect(""), &key_share.n)
+                .mod_inverse(&key_share.n.to_bigint().expect(""))
+                .expect("")
+                .to_biguint()
                 .expect(""),
-            Ordering::Equal => BigInt::one(),
+            Ordering::Equal => BigUint::one(),
             Ordering::Greater => share
                 .xi
-                .modpow(&exponent, &key_share.n.to_bigint().expect("")),
+                .modpow(&exponent.to_biguint().expect(""), &key_share.n),
         });
         // w.mul_assign(share.modpow(&exponent, &key_share.n));
     }
-    w = w.mod_floor(&key_share.n.to_bigint().expect(""));
-    let e_prime = BigInt::from(4u8).mul(delta.pow(2));
+    // w = w.mod_floor(&key_share.n);
+    let e_prime = BigUint::from(4u8).mul(delta.pow(2));
     let (_g, Some(a), Some(b)) = extended_gcd(
-        std::borrow::Cow::Borrowed(&e_prime.to_biguint().expect("")),
-        std::borrow::Cow::Borrowed(&key_share.e.to_biguint().expect("")),
+        std::borrow::Cow::Borrowed(&e_prime),
+        std::borrow::Cow::Borrowed(&key_share.e),
         true,
     ) else {
         todo!()
@@ -746,23 +739,23 @@ pub fn combine_shares(
     //         .clone()
     //         .mul(a.clone())
     //         .add(&key_share.e.to_bigint().expect("").clone().mul(b.clone()))
-    //         .cmp(&BigInt::one()),
+    //         .cmp(&BigUint::one()),
     //     Ordering::Equal,
     //     "The Bezout's equality e'a + eb != 1 does not hold.",
     // );
-    // assert_eq!(g.cmp(&BigInt::one()), Ordering::Equal);
+    // assert_eq!(g.cmp(&BigUint::one()), Ordering::Equal);
     // let we = w.modpow(
     //     &key_share.e.to_bigint().expect(""),
     //     &key_share.n.to_bigint().expect(""),
     // );
-    // let xe_prime = x.modpow(&BigInt::from(e_prime), &key_share.n.to_bigint().expect(""));
+    // let xe_prime = x.modpow(&BigUint::from(e_prime), &key_share.n.to_bigint().expect(""));
     // assert_eq!(
-    //     we.cmp(&BigInt::zero()),
+    //     we.cmp(&BigUint::zero()),
     //     Ordering::Greater,
     //     "w^e is not positive"
     // );
     // assert_eq!(
-    //     xe_prime.cmp(&BigInt::zero()),
+    //     xe_prime.cmp(&BigUint::zero()),
     //     Ordering::Greater,
     //     "x^e' is not positive"
     // );
@@ -771,7 +764,7 @@ pub fn combine_shares(
     // // with IDs 0 and 2
     // assert_eq!(
     //     we.cmp(&xe_prime),
-    //     // .cmp(&x.modpow(&BigInt::from(e_prime), &key_share.n)),
+    //     // .cmp(&x.modpow(&BigUint::from(e_prime), &key_share.n)),
     //     Ordering::Equal,
     //     "w^e != x^e'"
     // );
@@ -779,65 +772,64 @@ pub fn combine_shares(
     // NOTE raise to the negative power is not possible at the moment
     let first = match a.cmp(&BigInt::zero()) {
         Ordering::Less => w
-            .modpow(&a.neg(), &key_share.n.to_bigint().expect(""))
+            .modpow(&a.neg().to_biguint().expect(""), &key_share.n)
             .mod_inverse(&key_share.n.to_bigint().expect(""))
+            .expect("")
+            .to_biguint()
             .expect(""),
-        Ordering::Equal => BigInt::one(),
-        Ordering::Greater => w.modpow(&a, &key_share.n.to_bigint().expect("")),
+        Ordering::Equal => BigUint::one(),
+        Ordering::Greater => w.modpow(&a.to_biguint().expect(""), &key_share.n),
     };
     let second = match b.cmp(&BigInt::zero()) {
         Ordering::Less => x
-            .modpow(&b.neg(), &key_share.n.to_bigint().expect(""))
+            .modpow(&b.neg().to_biguint().expect(""), &key_share.n)
             .mod_inverse(&key_share.n)
+            .expect("")
+            .to_biguint()
             .expect(""),
-        Ordering::Equal => BigInt::one(),
-        Ordering::Greater => x.modpow(&b, &key_share.n.to_bigint().expect("")),
+        Ordering::Equal => BigUint::one(),
+        Ordering::Greater => x.modpow(&b.to_biguint().expect(""), &key_share.n),
     };
     // eprintln!("shares combined");
 
-    BigInt::from_bytes_be(
-        Sign::Plus,
-        &uint_to_zeroizing_be_pad(
-            (first
-                .mul(second)
-                .mod_floor(&key_share.n.to_bigint().expect("")))
-            .to_biguint()
-            .expect(""),
-            key_share.key_bytes_size,
-        )
-        .expect(""),
-    )
+    // BigUint::from_bytes_be(
+    match uint_to_zeroizing_be_pad(
+        first.mul(second).mod_floor(&key_share.n),
+        key_share.key_bytes_size,
+    ) {
+        Ok(value) => Ok(value),
+        Err(_) => Err(SigningError::SigningError),
+    }
+    // .expect(""),
+    // )
 }
 
 fn verify_signature(
     msg: &[u8],
-    signature: &BigInt,
+    signature: &[u8],
     scheme: PaddingScheme,
     key: &RSAThresholdPublicKey,
 ) -> bool {
     // let hashed = Sha256::digest(msg);
     // FIXME is this correct conversion?
-    // let hashed = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&key.n);
+    // let hashed = BigUint::from_bytes_be( &msg_digest).mod_floor(&key.n);
 
-    let padded = signature.modpow(&key.e, &key.n).mod_floor(&key.n);
+    let padded = BigUint::from_bytes_be(signature)
+        .modpow(&key.e, &key.n)
+        .mod_floor(&key.n);
 
     match scheme {
-        PaddingScheme::NONE => {
-            match BigInt::from_bytes_be(Sign::Plus, &msg)
-                .mod_floor(&key.n)
-                .cmp(&padded)
-            {
-                Ordering::Less | Ordering::Greater => false,
-                Ordering::Equal => true,
-            }
-        }
+        PaddingScheme::NONE => match BigUint::from_bytes_be(&msg).mod_floor(&key.n).cmp(&padded) {
+            Ordering::Less | Ordering::Greater => false,
+            Ordering::Equal => true,
+        },
         PaddingScheme::_PSS => unimplemented!(),
         PaddingScheme::PKCS1v15 => {
             let prefix = pkcs1v15_generate_prefix::<Sha256>();
             pkcs1v15_sign_unpad(
                 &[], // prefix
                 &msg,
-                &uint_to_be_pad(padded.to_biguint().expect(""), key.bytes_size).unwrap(),
+                &uint_to_be_pad(padded, key.bytes_size).unwrap(),
                 key.bytes_size,
             )
             .unwrap()
@@ -852,10 +844,10 @@ fn verify_signature(
 }
 
 // FIXME this should be only a helper in tests, move it
-fn regular_signature(msg: &[u8], key: &RSAThresholdPrivateKey) -> BigInt {
+fn regular_signature(msg: &[u8], key: &RSAThresholdPrivateKey) -> BigUint {
     let msg_digest = Sha256::digest(msg);
     let modulus = &key.p.clone().mul(key.q.clone());
-    let x = BigInt::from_bytes_be(Sign::Plus, &msg_digest).mod_floor(&modulus);
+    let x = BigUint::from_bytes_be(&msg_digest).mod_floor(&modulus);
 
     x.modpow(&key.d, &modulus)
 }
@@ -871,41 +863,41 @@ mod tests {
     #[test]
     fn test_evaluate_polynomial() {
         let coeffs = vec![
-            BigInt::from(17u32),
-            BigInt::from(63u32),
-            BigInt::from(127u32),
+            BigUint::from(17u32),
+            BigUint::from(63u32),
+            BigUint::from(127u32),
         ];
-        let modulus = BigInt::from(127u32);
+        let modulus = BigUint::from(127u32);
         assert_eq!(
-            evaluate_polynomial_mod(BigInt::from(2u32), &coeffs, &modulus).unwrap(),
-            BigInt::from(16u32)
+            evaluate_polynomial_mod(BigUint::from(2u32), &coeffs, &modulus).unwrap(),
+            BigUint::from(16u32)
         );
     }
 
     #[test]
     fn evaluate_simple_polynomial() {
         let coeffs = vec![
-            BigInt::from(1u64),
-            BigInt::from(1u64),
-            BigInt::from(1u64),
-            BigInt::from(1u64),
+            BigUint::from(1u64),
+            BigUint::from(1u64),
+            BigUint::from(1u64),
+            BigUint::from(1u64),
         ];
-        let modulus = BigInt::from(13u64);
+        let modulus = BigUint::from(13u64);
         assert_eq!(
-            evaluate_polynomial_mod(BigInt::from(1u32), &coeffs, &modulus).unwrap(),
-            BigInt::from(4u64)
+            evaluate_polynomial_mod(BigUint::from(1u32), &coeffs, &modulus).unwrap(),
+            BigUint::from(4u64)
         );
 
         let coeffs = vec![
-            BigInt::from(1u64),
-            BigInt::from(2u64),
-            BigInt::from(3u64),
-            // BigInt::from(1u64),
+            BigUint::from(1u64),
+            BigUint::from(2u64),
+            BigUint::from(3u64),
+            // BigUint::from(1u64),
         ];
-        let modulus = BigInt::from(13u64);
+        let modulus = BigUint::from(13u64);
         assert_eq!(
-            evaluate_polynomial_mod(BigInt::from(100u32), &coeffs, &modulus).unwrap(),
-            BigInt::from(2u32)
+            evaluate_polynomial_mod(BigUint::from(100u32), &coeffs, &modulus).unwrap(),
+            BigUint::from(2u32)
         );
     }
 
@@ -913,24 +905,24 @@ mod tests {
     fn another_polynomial_eval() {
         // h(x)=21231311311+x*31982323219+x^(2)*98212312334+x^(3)*43284+x^(4)*9381391389
         let coeffs = vec![
-            BigInt::from(21231311311u64),
-            BigInt::from(31982323219u64),
-            BigInt::from(98212312334u64),
-            BigInt::from(43284u32),
-            BigInt::from(9381391389u64),
+            BigUint::from(21231311311u64),
+            BigUint::from(31982323219u64),
+            BigUint::from(98212312334u64),
+            BigUint::from(43284u32),
+            BigUint::from(9381391389u64),
         ];
-        let modulus = BigInt::from(7124072u64);
+        let modulus = BigUint::from(7124072u64);
         assert_eq!(
-            evaluate_polynomial_mod(BigInt::from(0u32), &coeffs, &modulus).unwrap(),
-            BigInt::from(1576751u64)
+            evaluate_polynomial_mod(BigUint::from(0u32), &coeffs, &modulus).unwrap(),
+            BigUint::from(1576751u64)
         );
         // assert_eq!(
-        //     evaluate_polynomial_mod(BigInt::from(1u32), &coeffs, &modulus).unwrap(),
-        //     BigInt::from(2828353u64)
+        //     evaluate_polynomial_mod(BigUint::from(1u32), &coeffs, &modulus).unwrap(),
+        //     BigUint::from(2828353u64)
         // );
         assert_eq!(
-            evaluate_polynomial_mod(BigInt::from(2u32), &coeffs, &modulus).unwrap(),
-            BigInt::from(4139197u64)
+            evaluate_polynomial_mod(BigUint::from(2u32), &coeffs, &modulus).unwrap(),
+            BigUint::from(4139197u64)
         );
     }
 
@@ -993,7 +985,7 @@ mod tests {
     //     // eprintln!("{:?}", p);
     //     let bytes = p.to_be_bytes();
     //     // eprintln!("{:?}", bytes);
-    //     let nb_p = BigInt::from_bytes_be(Sign::Plus, &bytes);
+    //     let nb_p = BigUint::from_bytes_be( &bytes);
     //     // eprintln!("{:?}", nb_p.to_bytes_be());
 
     //     for (a, b) in zip(p.to_be_bytes()[1], nb_p.to_bytes_be()[1]) {
@@ -1007,8 +999,8 @@ mod tests {
 
         let (p, q) = generate_p_and_q(100).unwrap();
 
-        assert!(p > BigInt::one());
-        assert!(q > BigInt::one());
+        assert!(p > BigUint::one());
+        assert!(q > BigUint::one());
 
         eprintln!("{:?}", p.to_bytes_be());
         eprintln!("{:?}", q.to_bytes_be());
@@ -1038,8 +1030,8 @@ mod tests {
 
     #[test]
     fn test_ordering() {
-        assert_eq!(BigInt::zero().cmp(&BigInt::one()), Ordering::Less);
-        assert_eq!(BigInt::one().cmp(&BigInt::zero()), Ordering::Greater);
+        assert_eq!(BigUint::zero().cmp(&BigUint::one()), Ordering::Less);
+        assert_eq!(BigUint::one().cmp(&BigUint::zero()), Ordering::Greater);
     }
 
     #[test]
@@ -1113,7 +1105,7 @@ mod tests {
             &mss1,
             // mss1.c.clone(),
             // mss1.z.clone(),
-            &pubkey.n.to_biguint().expect(""),
+            &pubkey.n,
             pubkey.bytes_size,
             pad.clone(),
         );
@@ -1141,7 +1133,7 @@ mod tests {
             &mss2,
             // mss2.c.clone(),
             // mss2.z.clone(),
-            &pubkey.n.to_biguint().expect(""),
+            &pubkey.n,
             pubkey.bytes_size,
             pad.clone(),
         );
@@ -1154,13 +1146,14 @@ mod tests {
             &shares[0], // &pubkey,
             l,
             pad.clone(),
-        );
+        )
+        .unwrap();
         let reg_sig = regular_signature(msg.clone(), &sk);
         // assert_eq!(signature.cmp(&reg_sig), Ordering::Equal);
         eprintln!("signature: {:?}", signature);
         eprintln!("regular: {:?}", reg_sig);
 
-        let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
+        let n = sk.p.clone() * sk.q.clone();
         eprintln!("n: {}", n.to_string());
         eprintln!("e: {}", sk.e.to_string());
         eprintln!("d: {}", sk.d.to_string());
@@ -1168,24 +1161,24 @@ mod tests {
         eprintln!("q: {}", sk.q.to_string());
         eprintln!("m: {}", sk.m.to_string());
         eprintln!("v: {}", v.to_string());
-        assert!(verify_signature(msg, &signature.clone(), pad, &pubkey));
+        assert!(verify_signature(msg, &signature, pad, &pubkey));
     }
 
     #[test]
     fn test_negating() {
-        let mut one = BigInt::one().to_bigint().expect(""); // .to_bigint();
+        let mut one = BigUint::one().to_bigint().expect(""); // .to_bigint();
         negate_sign(&mut one);
         assert_eq!(
-            BigInt::one().to_bigint().expect("").cmp(&one),
+            BigUint::one().to_bigint().expect("").cmp(&one),
             Ordering::Greater
         );
     }
 
     #[test]
     fn power_to_negative() {
-        let num = BigInt::from(123u8);
-        let exp = BigInt::from(13u8);
-        let modulus = BigInt::from(1231u16);
+        let num = BigUint::from(123u8);
+        let exp = BigUint::from(13u8);
+        let modulus = BigUint::from(1231u16);
 
         let res = num.modpow(&exp, &modulus);
         eprintln!("{:?}", res.mod_inverse(&modulus));
@@ -1230,18 +1223,11 @@ mod tests {
         // save_key(&sk);
         let sk = load_key().unwrap();
 
-        let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
-        let privkey = RsaPrivateKey::from_components(
-            n,
-            sk.e.to_biguint().expect(""),
-            sk.d.to_biguint().expect(""),
-            vec![
-                sk.p.clone().to_biguint().expect(""),
-                sk.q.clone().to_biguint().expect(""),
-            ],
-        )
-        // assert_eq!(sk.d.modpow(sk.e)
-        .expect("");
+        let n = sk.p.clone() * sk.q.clone();
+        let privkey =
+            RsaPrivateKey::from_components(n, sk.e, sk.d, vec![sk.p.clone(), sk.q.clone()])
+                // assert_eq!(sk.d.modpow(sk.e)
+                .expect("");
         let mut keyfile = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         keyfile.push("resources/test/private_key.pem");
         privkey.write_pkcs1_pem_file(keyfile, LineEnding::LF);
@@ -1258,7 +1244,7 @@ mod tests {
         // let sk = key_gen(bit_length, l, k).unwrap();
         let sk = load_key().unwrap();
 
-        let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
+        let n = sk.p.clone() * sk.q.clone();
         eprintln!("n: {}", n.to_string());
         eprintln!("e: {}", sk.e.to_string());
         eprintln!("d: {}", sk.d.to_string());
@@ -1270,9 +1256,9 @@ mod tests {
     #[test]
     fn test_stringifying() {
         let mut rng = ChaCha20Rng::from_entropy();
-        let i = rng.gen_bigint(512);
+        let i = rng.gen_biguint(512);
         let i_string = i.to_string();
-        let i2 = BigInt::from_str(&i_string).unwrap();
+        let i2 = BigUint::from_str(&i_string).unwrap();
         assert_eq!(i.cmp(&i2), Ordering::Equal);
     }
     // TODO add a test where the delta factorial is bigger than the modulus
@@ -1319,14 +1305,15 @@ mod tests {
                 delta,
                 &vkey,
                 &signed_share,
-                &pubkey.n.to_biguint().expect(""),
+                &pubkey.n,
                 pubkey.bytes_size,
                 pad.clone(),
             );
             assert!(verified);
         }
 
-        let signature = combine_shares(msg, delta, sign_shares, &shares[0], l, pad.clone());
+        let signature =
+            combine_shares(msg, delta, sign_shares, &shares[0], l, pad.clone()).unwrap();
         // let _reg_sig = regular_signature(msg.clone(), &sk);
 
         // FIXME apparently sometimes our signature is differente from the regular signature.
@@ -1337,22 +1324,15 @@ mod tests {
         //     &pubkey
         // ));
         // assert_eq!(signature, reg_sig);
-        let n = (sk.p.clone() * sk.q.clone()).to_biguint().expect("");
-        let r_privkey = RsaPrivateKey::from_components(
-            n.clone(),
-            sk.e.to_biguint().expect(""),
-            sk.d.to_biguint().expect(""),
-            vec![
-                sk.p.clone().to_biguint().expect(""),
-                sk.q.clone().to_biguint().expect(""),
-            ],
-        )
-        .expect("");
+        let n = sk.p.clone() * sk.q.clone();
+        let r_privkey =
+            RsaPrivateKey::from_components(n.clone(), sk.e, sk.d, vec![sk.p.clone(), sk.q.clone()])
+                .expect("");
         let r_pub = r_privkey.to_public_key();
         // r_pub.verify
         // TODO verify against a RSA/RsaPublicKey
         // let padded = digest_msg(msg, pad, &n, pubkey.bytes_size);
-        // eprintln!("padded len: \n{:?}", padded.to_bytes_be().1.len());
+        // eprintln!("padded len: \n{:?}", padded.to_bytes_be().len());
         // eprintln!("pad length: {}", pkcs1v15_sign_pad(&[], &msg, pubkey.bytes_size).unwrap().len());
         assert_eq!(
             r_pub.verify(
@@ -1364,8 +1344,8 @@ mod tests {
                 // },
                 // &pkcs1v15_sign_pad(&[], &msg, pubkey.bytes_size).unwrap(),
                 &msg,
-                // &padded.to_bytes_be().1,
-                &signature.to_bytes_be().1,
+                // &padded.to_bytes_be(),
+                &signature,
             ),
             Ok(()),
         );
@@ -1465,7 +1445,8 @@ mod tests {
             &secret_pkgs[0].share,
             max_signers.into(),
             padding_scheme,
-        );
+        )
+        .unwrap();
 
         // The ideas is that every pair of signers should generate the same signature for a
         // deterministic padding scheme
@@ -1483,7 +1464,7 @@ mod tests {
                     &secret_pkgs[first].share,
                     max_signers.into(),
                     padding_scheme,
-                ),
+                ).unwrap(),
             "the signature 3 out of 3 does not match signature from parties [{first}, {second}]");
         }
     }

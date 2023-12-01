@@ -39,7 +39,7 @@ use std::any::type_name;
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::ops::{Add, Div, Mul, MulAssign, Neg, Shr};
+use std::ops::{Add, Div, Mul, MulAssign, Neg, Shr, Sub};
 use std::str::FromStr;
 
 // FIXME reexport the RSA customized module?
@@ -463,10 +463,8 @@ pub fn sign_with_share(
     let hash_length = 256;
     let two = BigUint::from(2u8);
 
-    let bound = two
-        .pow(n_bits + 2 * hash_length)
-        .checked_sub(&BigInt::one())
-        .expect("");
+    // NOTE: not using checked_sub, because it is unlikely to underflow
+    let bound = two.pow(n_bits + 2 * hash_length).sub(&BigUint::one());
     let mut rng = ChaCha20Rng::from_entropy();
     let r = rng.gen_biguint_range(&BigUint::zero(), &bound);
     // eprintln!("pz_r = {}", r);

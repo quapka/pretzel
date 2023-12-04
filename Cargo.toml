@@ -33,3 +33,8 @@ pkcs1= "*"
 [dev-dependencies]
 rand_chacha = "0.3"
 itertools = "0.11.0"
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "signing"
+harness = false
